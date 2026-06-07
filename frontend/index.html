@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' http://127.0.0.1:8765; connect-src 'self' http://127.0.0.1:8765; img-src 'self' data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';">
+  <title>TokenForge - Prompt Optimizer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">
+          <div class="logo-icon">&#9889;</div>
+          <span>TokenForge</span>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <div class="nav-item active" data-view="optimizer">
+          <span class="nav-icon">&#9889;</span>
+          Optimizer
+        </div>
+        <div class="nav-item" data-view="simulator">
+          <span class="nav-icon">&#36;</span>
+          Simulateur
+        </div>
+        <div class="nav-item" data-view="history">
+          <span class="nav-icon">&#128337;</span>
+          Historique
+        </div>
+        <div class="nav-item" data-view="keys">
+          <span class="nav-icon">&#128273;</span>
+          API Keys
+        </div>
+        <div class="nav-item" data-view="templates">
+          <span class="nav-icon">&#128203;</span>
+          Templates
+        </div>
+        <div class="nav-item" data-view="admin">
+          <span class="nav-icon">&#9881;</span>
+          Admin
+        </div>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="backend-status">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">Connexion...</span>
+        </div>
+        <span>TokenForge v1.0.0</span>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <div class="content-header">
+        <div>
+          <h1 id="viewTitle">Optimizer</h1>
+          <p class="subtitle" id="viewSubtitle">Optimisez vos prompts et réduisez vos coûts</p>
+        </div>
+      </div>
+      <div class="content-body">
+
+        <!-- ===== OPTIMIZER VIEW ===== -->
+        <div class="view active" id="view-optimizer">
+          <div class="optimizer-layout">
+            <!-- Left: Input -->
+            <div class="prompt-section">
+              <div class="card" style="height:100%;display:flex;flex-direction:column;">
+                <div class="card-header">
+                  <h3>Prompt original</h3>
+                  <span class="badge" id="tokenBadge">0 tokens</span>
+                </div>
+
+                <div class="template-quick">
+                  <select id="templateSelect" onchange="loadTemplate()">
+                    <option value="">-- Charger un template --</option>
+                  </select>
+                </div>
+
+                <div class="top-bar">
+                  <div class="control-group">
+                    <label>Modèle cible</label>
+                    <select id="targetModel"></select>
+                  </div>
+                  <div class="control-group">
+                    <label>Optimisé par</label>
+                    <select id="optimizerProvider" onchange="onOptimizerChange()">
+                      <option value="">Optimisation locale (gratuit)</option>
+                      <option value="openai">OpenAI</option>
+                      <option value="anthropic">Anthropic</option>
+                      <option value="google">Google</option>
+                    </select>
+                  </div>
+                  <div class="control-group">
+                    <label>Catégorie</label>
+                    <select id="categorySelect">
+                      <option value="">Auto-détection</option>
+                      <option value="general">General</option>
+                      <option value="literary">Literary</option>
+                      <option value="scientific">Scientific</option>
+                      <option value="commercial">Commercial</option>
+                      <option value="philosophical">Philosophical</option>
+                      <option value="instructional">Instructional</option>
+                    </select>
+                  </div>
+                  <div class="control-group" id="optimizerModelGroup" style="display:none;">
+                    <label>Modèle d'optimisation</label>
+                    <select id="optimizerModel"></select>
+                  </div>
+                </div>
+
+                <div id="keySection" class="key-section" style="display:none;">
+                  <span class="key-info">
+                    <span id="keyStatusIcon">&#128274;</span>
+                    <span id="keyStatusText">Clé non configurée</span>
+                  </span>
+                  <button class="btn btn-secondary btn-sm" onclick="showKeyModal()">Configurer</button>
+                </div>
+
+                <textarea id="promptInput" placeholder="Collez votre prompt ici..." oninput="onPromptChange()"></textarea>
+
+                <div class="token-info">
+                  <div class="token-info-item">
+                    <span class="label">Tokens:</span>
+                    <span class="value" id="liveTokens">0</span>
+                  </div>
+                  <div class="token-info-item">
+                    <span class="label">Coût estimé:</span>
+                    <span class="value" id="liveCost">$0.0000</span>
+                  </div>
+                  <div class="token-info-item">
+                    <span class="label">Fenêtre ctx:</span>
+                    <span class="value" id="liveContext">128K</span>
+                  </div>
+                </div>
+
+                <div class="prompt-actions">
+                  <button class="btn btn-primary" id="optimizeBtn" onclick="optimize()">
+                    &#9889; Optimiser
+                  </button>
+                  <button class="btn btn-secondary" onclick="saveCurrentPromptAsTemplate()">&#128203; Template</button>
+                  <button class="btn btn-secondary" onclick="clearPrompt()">&#8634; Reset</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right: Results -->
+            <div class="results-section" id="resultsSection">
+              <div class="card" style="height:100%;position:relative;">
+                <div class="loading-overlay" id="loadingOverlay">
+                  <div class="spinner"></div>
+                  <p>Optimisation en cours...</p>
+                </div>
+
+                <div class="card-header">
+                  <h3>Résultats</h3>
+                  <span class="badge" id="resultBadge">En attente</span>
+                </div>
+
+                <div class="results-placeholder" id="resultsPlaceholder">
+                  <div class="placeholder-icon">&#9889;</div>
+                  <h3>Prêt à optimiser</h3>
+                  <p>Entrez votre prompt, configurez l'optimiseur, puis cliquez sur "Optimiser".</p>
+                </div>
+
+                <div id="resultsContent" style="display:none;">
+                  <!-- Version pills -->
+                  <div class="version-pills" id="versionPills"></div>
+                  <!-- Version detail -->
+                  <div id="versionDetail"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== SIMULATOR VIEW ===== -->
+        <div class="view" id="view-simulator">
+          <div class="sim-layout">
+            <div class="card" style="flex:1;">
+              <div class="card-header">
+                <h3>Prompt original</h3>
+              </div>
+              <textarea id="simPromptOriginal" placeholder="Prompt original..." style="min-height:120px;" oninput="onSimPromptChange()"></textarea>
+            </div>
+            <div class="card" style="flex:1;">
+              <div class="card-header">
+                <h3>Prompt optimisé</h3>
+              </div>
+              <textarea id="simPromptOptimized" placeholder="Prompt optimisé (collez une version optimisée)..." style="min-height:120px;" oninput="onSimPromptChange()"></textarea>
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;margin-top:12px;">
+            <button class="btn btn-primary" onclick="simulateCosts()">
+              &#36; Comparer les coûts
+            </button>
+            <button class="btn btn-secondary" onclick="fillSimFromOptimizer()">
+              &#8634; Charger depuis l'optimiseur
+            </button>
+          </div>
+          <div id="simResults" style="margin-top:16px;"></div>
+        </div>
+
+        <!-- ===== HISTORY VIEW ===== -->
+        <div class="view" id="view-history">
+          <div class="card">
+            <div class="card-header">
+              <h3>Historique des optimisations</h3>
+              <button class="btn btn-danger btn-sm" onclick="clearHistory()">Tout effacer</button>
+            </div>
+            <div class="history-list" id="historyList">
+              <div class="empty-state">
+                <div class="empty-icon">&#128337;</div>
+                <h3>Aucun historique</h3>
+                <p>Les prompts optimisés apparaîtront ici automatiquement.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== API KEYS VIEW ===== -->
+        <div class="view" id="view-keys">
+          <div class="card">
+            <div class="card-header">
+              <h3>Gestion des clés API</h3>
+              <p style="color:var(--text-secondary);font-size:13px;">Les clés sont stockées localement de façon sécurisée</p>
+            </div>
+            <div class="keys-grid" id="keysGrid">
+              <div class="key-card">
+                <div class="key-card-header">
+                  <div class="key-provider">&#128274; OpenAI</div>
+                  <span class="key-status missing" id="keyStatus-openai">Non configuré</span>
+                </div>
+                <div class="key-value-display" id="keyDisplay-openai">sk-****</div>
+                <div class="key-input-group">
+                  <input type="password" id="keyInput-openai" placeholder="sk-...">
+                  <button class="btn btn-primary btn-sm" onclick="saveKey('openai')">Sauver</button>
+                  <button class="btn btn-danger btn-sm" onclick="deleteKey('openai')">X</button>
+                </div>
+              </div>
+              <div class="key-card">
+                <div class="key-card-header">
+                  <div class="key-provider">&#128274; Anthropic</div>
+                  <span class="key-status missing" id="keyStatus-anthropic">Non configuré</span>
+                </div>
+                <div class="key-value-display" id="keyDisplay-anthropic">sk-ant-****</div>
+                <div class="key-input-group">
+                  <input type="password" id="keyInput-anthropic" placeholder="sk-ant-...">
+                  <button class="btn btn-primary btn-sm" onclick="saveKey('anthropic')">Sauver</button>
+                  <button class="btn btn-danger btn-sm" onclick="deleteKey('anthropic')">X</button>
+                </div>
+              </div>
+              <div class="key-card">
+                <div class="key-card-header">
+                  <div class="key-provider">&#128274; Google</div>
+                  <span class="key-status missing" id="keyStatus-google">Non configuré</span>
+                </div>
+                <div class="key-value-display" id="keyDisplay-google">AIza****</div>
+                <div class="key-input-group">
+                  <input type="password" id="keyInput-google" placeholder="AIza...">
+                  <button class="btn btn-primary btn-sm" onclick="saveKey('google')">Sauver</button>
+                  <button class="btn btn-danger btn-sm" onclick="deleteKey('google')">X</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== TEMPLATES VIEW ===== -->
+        <div class="view" id="view-templates">
+          <div class="card">
+            <div class="card-header">
+              <h3>Templates prêts à l'emploi</h3>
+              <button class="btn btn-primary btn-sm" onclick="showAddTemplateModal()">+ Nouveau</button>
+            </div>
+            <div class="templates-grid" id="templatesGrid">
+              <div class="empty-state">
+                <div class="empty-icon">&#128203;</div>
+                <h3>Aucun template</h3>
+                <p>Créez des templates pour réutiliser vos prompts.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== ADMIN / DASHBOARD VIEW ===== -->
+        <div class="view" id="view-admin">
+          <div class="admin-grid">
+
+            <!-- KPI Cards Row -->
+            <div class="kpi-row">
+              <div class="kpi-card">
+                <div class="kpi-value" id="kpiTotal">-</div>
+                <div class="kpi-label">Optimisations</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-value" id="kpiTokens">-</div>
+                <div class="kpi-label">Tokens économisés</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-value" id="kpiAvg">-</div>
+                <div class="kpi-label">Réd. moyenne</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-value" id="kpiToday">-</div>
+                <div class="kpi-label">Aujourd'hui</div>
+              </div>
+            </div>
+
+            <!-- Chart + Mode breakdown -->
+            <div class="dashboard-row">
+              <div class="card chart-card">
+                <div class="card-header"><h3>Tendance 7 jours</h3></div>
+                <div id="chart7d" style="height:160px;display:flex;align-items:end;gap:4px;padding:8px 0;">
+                  <div style="color:var(--text-muted);font-size:13px;width:100%;text-align:center;">Chargement...</div>
+                </div>
+              </div>
+              <div class="card mode-card">
+                <div class="card-header"><h3>Par mode</h3></div>
+                <div id="modeBreakdown"></div>
+              </div>
+            </div>
+
+            <!-- Recent + Service -->
+            <div class="dashboard-row">
+              <div class="card recent-card">
+                <div class="card-header"><h3>Récent</h3></div>
+                <div id="recentList" style="font-size:13px;">
+                  <div style="color:var(--text-muted);">Aucune donnée</div>
+                </div>
+              </div>
+              <div class="card" style="border:1px solid #ff444444;">
+                <div class="card-header"><h3>&#9881; Service</h3></div>
+                <button class="btn btn-danger" id="btnRestart" onclick="restartBackend()" style="width:100%;padding:12px;font-size:16px;font-weight:bold;">
+                  &#8635; RESTART
+                </button>
+                <div id="restartStatus" style="display:none;margin-top:8px;padding:8px;background:var(--bg-tertiary);border-radius:8px;text-align:center;">
+                  <div class="spinner" style="margin:0 auto 8px;"></div>
+                  <span id="restartMsg">Redémarrage...</span>
+                </div>
+                <div id="adminLog" style="margin-top:8px;background:var(--bg-tertiary);border-radius:8px;padding:8px;max-height:160px;overflow-y:auto;font-family:monospace;font-size:12px;white-space:pre-wrap;">
+                  <div style="color:var(--text-muted);">[SYSTEM] Console chargée</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Key Modal -->
+  <div class="modal-overlay" id="keyModal">
+    <div class="modal">
+      <h3>Configurer la clé API</h3>
+      <p style="color:var(--text-secondary);margin-bottom:16px;font-size:14px;" id="keyModalProvider">Fournisseur</p>
+      <input type="password" id="keyModalInput" placeholder="Entrez votre clé API" style="margin-bottom:8px;">
+      <p style="font-size:12px;color:var(--text-muted);">La clé est stockée localement et chiffrée.</p>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeKeyModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveKeyFromModal()">Sauvegarder</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Template Modal -->
+  <div class="modal-overlay" id="templateModal">
+    <div class="modal">
+      <h3>Nouveau template</h3>
+      <div style="display:flex;gap:12px;margin-bottom:12px;">
+        <input type="text" id="templateNameInput" placeholder="Nom du template" style="flex:1;">
+        <select id="templateCategoryInput" style="width:150px;">
+          <option value="general">General</option>
+          <option value="coding">Coding</option>
+          <option value="writing">Writing</option>
+          <option value="analysis">Analysis</option>
+          <option value="creative">Creative</option>
+        </select>
+      </div>
+      <textarea id="templateContentInput" placeholder="Contenu du template..." style="min-height:150px;"></textarea>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeTemplateModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveTemplate()">Créer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
