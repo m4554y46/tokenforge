@@ -10,6 +10,8 @@ TokenForge est une application desktop qui analyse, optimise et compresse vos pr
 - **Semantic chunk filter** (Stage 3) : chunk → MiniLM embed → cosinus score → drop low-relevance
 - **Quality validation** (Stage 2) : cosine similarity original vs compressé, contenu critique, spans protégés
 - **2 moteurs neuronaux embarqués** : KOMPRESS (ModernBert, 8192 tokens) + LLMLingua-2 (XLM-RoBERTa/BERT) — fallback automatique
+- **Couche 2 — Gray Zone LLM** (optionnel) : petit LLM local (Phi-3-mini / Qwen2.5) pour ambiguïté, protection fine, validation causale, registre, ré-expansion
+- **Cache LLM adaptatif** : LRU 1000 entrées, TTL 1h, profils utilisateur avec historique des corrections
 - **Compression intelligente** : contenu protégé (code, LaTeX, JSON, URLs), détection de langue (FR/EN), 24 formats de documents
 - **Import de documents** : PDF, DOCX, PPTX, XLSX, CSV, JSON, XML, HTML, Markdown, images (OCR), code source et plus
 - **Optimisation via IA externe** : utilisez Claude 4, GPT-4o ou Gemini 2.5 Pro pour optimiser vos prompts
@@ -40,6 +42,20 @@ Ingestion → Protection → Semantic Chunk Filter → Parse → IR → Constrai
 → Logical → Temporal → Example Reduction → Neural (KOMPRESS ⤑ LLMLingua-2)
 → Reconstruction → Validation → Quality → Metrics
 ```
+
+## Gray Zone LLM (Couche 2 — optionnel)
+
+Un petit LLM local (Phi-3-mini 3.8B, 8GB RAM, CPU-only) résout les 5 zones grises que les règles+KOMPRESS ne peuvent pas traiter seuls :
+
+| Zone | Problème | Solution LLM |
+|---|---|---|
+| Ambiguïté | "Tous sauf X" vs "Tous, sauf X" | Classifier CLEAR/AMBIGUOUS |
+| Protection fine | Mots anodins à charge implicite | Token-level KEEP/REMOVE contextuel |
+| Validation causale | Relations inversées après compression | PASS/FAIL avec description |
+| Registre/Ton | Niveau de formalité uniformisé | 5 labels (FORMAL→TECHNICAL) |
+| Ré-expansion | Texte télégraphique ambigu | +20% tokens max, préservation sémantique |
+
+Le LLM est appelé uniquement si nécessaire (router + cache LRU 1000 entrées + profils utilisateur). **Zéro appel réseau, zéro coût API.**
 
 ## Prérequis
 

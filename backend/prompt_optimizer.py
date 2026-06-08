@@ -603,7 +603,7 @@ class OptiTokenOptimizer:
 
     # --- MAIN OPTIMIZE ---
     def optimize(self, raw_prompt: str, category: str = None, spc_enabled: bool = True,
-                 progress_callback=None) -> Dict[str, dict]:
+                 progress_callback=None, refine_with_llm: bool = False) -> Dict[str, dict]:
         original = raw_prompt.strip()
         if progress_callback:
             progress_callback("sanctuary", 3)
@@ -761,6 +761,36 @@ class OptiTokenOptimizer:
         if progress_callback:
             progress_callback("saving", 95)
 
+        # --- Couche 2 : Gray Zone Refine (optionnel, post-processing LLM local) ---
+        if refine_with_llm:
+            try:
+                from .spc.gray_zone import GrayZoneRouter, GrayZone
+                from .spc.llama_cpp import LlamaCpp
+
+                _llm = LlamaCpp()
+                _router = GrayZoneRouter(llm=_llm)
+                if _router.is_available():
+                    for _mode_key, _txt in (
+                        ("aggressive", aggressive_prompt),
+                        ("max", max_prompt),
+                        ("industrial", industrial_prompt),
+                    ):
+                        if _txt and len(_txt) > 30:
+                            _refined, _meta = _router.refine(
+                                text=_txt,
+                                original=original,
+                                zone=GrayZone.CAUSAL_VALIDATION,
+                            )
+                            if _meta.get("llm_called") and _refined:
+                                if _mode_key == "aggressive":
+                                    aggressive_prompt = _refined
+                                elif _mode_key == "max":
+                                    max_prompt = _refined
+                                else:
+                                    industrial_prompt = _refined
+            except Exception as exc:
+                logging.warning("Gray zone refine failed: %s", exc)
+
         return {
             "light": {
                 "label": "Light",
@@ -794,9 +824,9 @@ class OptiTokenOptimizer:
 
 
 # --- WRAPPER API COMPATIBLE AVEC app.py ---
-def optimize_locally(prompt: str, category: str = None, spc_enabled: bool = True) -> dict:
+def optimize_locally(prompt: str, category: str = None, spc_enabled: bool = True, refine_with_llm: bool = False) -> dict:
     opt = OptiTokenOptimizer()
-    result = opt.optimize(prompt, category=category, spc_enabled=spc_enabled)
+    result = opt.optimize(prompt, category=category, spc_enabled=spc_enabled, refine_with_llm=refine_with_llm)
     _meta = result.pop("_meta", {})
     changes_light = [{"type": "light_clean", "description": "Nettoyage conversationnel"}]
     changes_balanced = [{"type": "balanced_restruct", "description": "Restructuration par blocs + compression"}]

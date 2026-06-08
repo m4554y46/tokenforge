@@ -41,9 +41,26 @@ async function checkBackendStatus() {
     await api("/api/health");
     document.getElementById("statusDot").className = "status-dot ready";
     document.getElementById("statusText").textContent = "Backend prêt";
+    checkLlmStatus();
   } catch {
     document.getElementById("statusDot").className = "status-dot error";
     document.getElementById("statusText").textContent = "Backend indisponible";
+  }
+}
+
+async function checkLlmStatus() {
+  try {
+    const data = await api("/api/llm/status");
+    const hint = document.getElementById("llmStatusHint");
+    if (data.available) {
+      hint.textContent = "\u2705 LLM disponible";
+      hint.style.color = "var(--accent-green)";
+    } else {
+      hint.textContent = "\u26A0\uFE0F Aucun LLM local (optionnel)";
+      hint.style.color = "var(--text-muted)";
+    }
+  } catch {
+    // ignore
   }
 }
 
@@ -399,6 +416,7 @@ async function optimize() {
         optimizer_provider: provider || null,
         optimizer_model: optimizerModel || null,
         category: category || null,
+        refine_with_llm: document.getElementById("refineLlmToggle")?.checked || false,
       }),
     });
 
@@ -503,6 +521,7 @@ function renderVersionDetail(index) {
       <div class="version-header">
         <span class="version-badge ${badgeClass}">${v.label}</span>
         ${index === 1 ? '<span class="version-badge popular-tag">POPULAIRE</span>' : ""}
+        ${document.getElementById("refineLlmToggle")?.checked ? '<span class="version-badge llm-tag">LLM</span>' : ""}
       </div>
       <div class="version-description">${escapeHtml(v.description || "")}</div>
       <div class="version-prompt">${escapeHtml(v.prompt || "")}</div>

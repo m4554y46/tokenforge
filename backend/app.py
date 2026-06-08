@@ -60,6 +60,20 @@ class OptimizeRequest(BaseModel):
     optimizer_provider: Optional[str] = None
     optimizer_model: Optional[str] = None
     category: Optional[str] = None
+    refine_with_llm: bool = False
+
+
+class LLMRefineRequest(BaseModel):
+    text: str
+    original: str = ""
+    zone: str = "causal_validation"
+    user_id: str = ""
+
+
+class LLMStatusResponse(BaseModel):
+    available: bool
+    model: Optional[str] = None
+    backend: Optional[str] = None
 
 
 class OptimizeResponse(BaseModel):
@@ -143,7 +157,7 @@ def _run_optimize_task(session_id: str, req: OptimizeRequest):
         opt = OptiTokenOptimizer()
         result = opt.optimize(
             req.prompt, category=category, spc_enabled=True,
-            progress_callback=on_progress,
+            progress_callback=on_progress, refine_with_llm=req.refine_with_llm,
         )
         _meta = result.pop("_meta", {})
 
@@ -230,6 +244,52 @@ def get_progress(session_id: str):
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+
+# ── LLM Refine routes (Couche 2: Gray Zone) ────────────────────
+
+
+@app.post("/api/llm/refine")
+async def llm_refine(req: LLMRefineRequest):
+    """Refine compressed text through gray zone LLM."""
+    try:
+        from .spc.gray_zone import GrayZoneRouter, GrayZone
+        from .spc.llama_cpp import LlamaCpp
+
+        zone_map = {
+            "ambiguity": GrayZone.AMBIGUITY,
+            "fine_protection": GrayZone.FINE_PROTECTION,
+            "causal_validation": GrayZone.CAUSAL_VALIDATION,
+            "register": GrayZone.REGISTER,
+            "reexpansion": GrayZone.REEXPANSION,
+        }
+        zone = zone_map.get(req.zone, GrayZone.CAUSAL_VALIDATION)
+        llm = LlamaCpp()
+        router = GrayZoneRouter(llm=llm)
+        if not router.is_available():
+            return {"refined": req.text, "zone": req.zone, "llm_available": False}
+        refined, meta = router.refine(
+            text=req.text,
+            original=req.original,
+            zone=zone,
+            user_id=req.user_id,
+            force=True,
+        )
+        return {"refined": refined, "zone": req.zone, "meta": meta, "llm_available": True}
+    except Exception as exc:
+        logger.warning("LLM refine failed: %s", exc)
+        return {"refined": req.text, "zone": req.zone, "error": str(exc)}
+
+
+@app.get("/api/llm/status")
+def llm_status():
+    """Check if local LLM is available for gray zone refinement."""
+    try:
+        from .spc.llama_cpp import LlamaCpp
+        llm = LlamaCpp()
+        return {"available": llm.is_available(), "model": llm.model_path}
+    except Exception as exc:
+        return {"available": False, "error": str(exc)}
 
 
 # ── Legacy /api/optimize-sync (kept for backward compat) ──────
