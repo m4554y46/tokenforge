@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' http://127.0.0.1:8765; connect-src 'self' http://127.0.0.1:8765; img-src 'self' data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' http://127.0.0.1:8765; img-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'self'; object-src 'none';">
   <title>TokenForge - Prompt Optimizer</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -12,36 +12,36 @@
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-header">
-        <div class="sidebar-logo">
-          <div class="logo-icon">&#9889;</div>
-          <span>TokenForge</span>
-        </div>
+          <div class="sidebar-logo" data-tooltip="TokenForge v1.0 — Optimiseur de prompts IA">
+            <div class="logo-icon">&#9889;</div>
+            <span>TokenForge</span>
+          </div>
       </div>
-      <nav class="sidebar-nav">
-        <div class="nav-item active" data-view="optimizer">
-          <span class="nav-icon">&#9889;</span>
+      <nav class="sidebar-nav" role="tablist" aria-label="Navigation principale">
+        <button class="nav-item active" data-view="optimizer" role="tab" aria-selected="true" data-tooltip="Compressez vos prompts en 5 modes : Light, Balanced, Aggressive, Max, Industrial">
+          <span class="nav-icon" aria-hidden="true">&#9889;</span>
           Optimizer
-        </div>
-        <div class="nav-item" data-view="simulator">
-          <span class="nav-icon">&#36;</span>
-          Simulateur
-        </div>
-        <div class="nav-item" data-view="history">
-          <span class="nav-icon">&#128337;</span>
+        </button>
+        <button class="nav-item" data-view="history" role="tab" aria-selected="false" data-tooltip="Historique de toutes vos optimisations, avec filtres et détails">
+          <span class="nav-icon" aria-hidden="true">&#128337;</span>
           Historique
-        </div>
-        <div class="nav-item" data-view="keys">
-          <span class="nav-icon">&#128273;</span>
+        </button>
+        <button class="nav-item" data-view="keys" role="tab" aria-selected="false" data-tooltip="Configurez vos clés API OpenAI, Anthropic, Google pour l'optimisation">
+          <span class="nav-icon" aria-hidden="true">&#128273;</span>
           API Keys
-        </div>
-        <div class="nav-item" data-view="templates">
-          <span class="nav-icon">&#128203;</span>
+        </button>
+        <button class="nav-item" data-view="documents" role="tab" aria-selected="false" data-tooltip="Importez et compressez des documents (PDF, DOCX, PPTX, etc.)">
+          <span class="nav-icon" aria-hidden="true">&#128196;</span>
+          Documents
+        </button>
+        <button class="nav-item" data-view="templates" role="tab" aria-selected="false" data-tooltip="Gérez vos templates de prompts réutilisables">
+          <span class="nav-icon" aria-hidden="true">&#128203;</span>
           Templates
-        </div>
-        <div class="nav-item" data-view="admin">
-          <span class="nav-icon">&#9881;</span>
+        </button>
+        <button class="nav-item" data-view="admin" role="tab" aria-selected="false" data-tooltip="Dashboard KPI, statistiques et redémarrage du service">
+          <span class="nav-icon" aria-hidden="true">&#9881;</span>
           Admin
-        </div>
+        </button>
       </nav>
       <div class="sidebar-footer">
         <div class="backend-status">
@@ -69,23 +69,23 @@
             <div class="prompt-section">
               <div class="card" style="height:100%;display:flex;flex-direction:column;">
                 <div class="card-header">
-                  <h3>Prompt original</h3>
+                  <h3 data-tooltip="Le prompt que vous souhaitez optimiser. Collez votre texte ici.">Prompt original</h3>
                   <span class="badge" id="tokenBadge">0 tokens</span>
                 </div>
 
                 <div class="template-quick">
-                  <select id="templateSelect" onchange="loadTemplate()">
+                  <select id="templateSelect" onchange="loadTemplate()" data-tooltip="Sélectionnez un template pré-enregistré pour le charger dans l'éditeur">
                     <option value="">-- Charger un template --</option>
                   </select>
                 </div>
 
                 <div class="top-bar">
                   <div class="control-group">
-                    <label>Modèle cible</label>
+                    <label class="label-tip" data-tooltip="Modèle utilisé pour calculer les tokens et coûts de référence">Modèle cible</label>
                     <select id="targetModel"></select>
                   </div>
                   <div class="control-group">
-                    <label>Optimisé par</label>
+                    <label class="label-tip" data-tooltip="Moteur d'optimisation : local (gratuit, rapide) ou via API LLM (meilleure qualité)">Optimisé par</label>
                     <select id="optimizerProvider" onchange="onOptimizerChange()">
                       <option value="">Optimisation locale (gratuit)</option>
                       <option value="openai">OpenAI</option>
@@ -94,7 +94,7 @@
                     </select>
                   </div>
                   <div class="control-group">
-                    <label>Catégorie</label>
+                    <label class="label-tip" data-tooltip="Catégorie du prompt. L'optimiseur adapte ses règles selon le type de contenu.">Catégorie</label>
                     <select id="categorySelect">
                       <option value="">Auto-détection</option>
                       <option value="general">General</option>
@@ -103,45 +103,50 @@
                       <option value="commercial">Commercial</option>
                       <option value="philosophical">Philosophical</option>
                       <option value="instructional">Instructional</option>
+                      <option value="legal">Legal</option>
+                      <option value="financial">Financial</option>
+                      <option value="technical">Technical</option>
+                      <option value="administrative">Administrative</option>
+                      <option value="academic">Academic</option>
                     </select>
                   </div>
                   <div class="control-group" id="optimizerModelGroup" style="display:none;">
-                    <label>Modèle d'optimisation</label>
+                    <label class="label-tip" data-tooltip="Modèle LLM utilisé pour l'optimisation (disponible quand un fournisseur API est sélectionné)">Modèle d'optimisation</label>
                     <select id="optimizerModel"></select>
                   </div>
                 </div>
 
-                <div id="keySection" class="key-section" style="display:none;">
+                <div id="keySection" class="key-section" style="display:none;" data-tooltip="État de la clé API pour le fournisseur sélectionné. Configurez-en une si vous souhaitez utiliser l'optimisation via LLM.">
                   <span class="key-info">
                     <span id="keyStatusIcon">&#128274;</span>
                     <span id="keyStatusText">Clé non configurée</span>
                   </span>
-                  <button class="btn btn-secondary btn-sm" onclick="showKeyModal()">Configurer</button>
+                  <button class="btn btn-secondary btn-sm" onclick="showKeyModal()" data-tooltip="Ouvre la configuration de la clé API pour le fournisseur sélectionné.">Configurer</button>
                 </div>
 
-                <textarea id="promptInput" placeholder="Collez votre prompt ici..." oninput="onPromptChange()"></textarea>
+                <textarea id="promptInput" placeholder="Collez votre prompt ici..." oninput="onPromptChange()" data-tooltip="Saisissez le prompt à optimiser. La compression s'applique en local et préserve le code, LaTeX, URLs et templates."></textarea>
 
                 <div class="token-info">
-                  <div class="token-info-item">
+                  <div class="token-info-item" data-tooltip="Nombre de tokens dans le prompt actuel. 1 token ≈ 0.75 mot en anglais.">
                     <span class="label">Tokens:</span>
                     <span class="value" id="liveTokens">0</span>
                   </div>
-                  <div class="token-info-item">
+                  <div class="token-info-item" data-tooltip="Coût estimé d'une complétion avec ce modèle (input + output à 30% ratio).">
                     <span class="label">Coût estimé:</span>
                     <span class="value" id="liveCost">$0.0000</span>
                   </div>
-                  <div class="token-info-item">
+                  <div class="token-info-item" data-tooltip="Fenêtre de contexte maximale du modèle sélectionné.">
                     <span class="label">Fenêtre ctx:</span>
                     <span class="value" id="liveContext">128K</span>
                   </div>
                 </div>
 
                 <div class="prompt-actions">
-                  <button class="btn btn-primary" id="optimizeBtn" onclick="optimize()">
+                  <button class="btn btn-primary" id="optimizeBtn" onclick="optimize()" data-tooltip="Lance l'optimisation du prompt. Produit 3 versions : Light, Balanced, Aggressive.">
                     &#9889; Optimiser
                   </button>
-                  <button class="btn btn-secondary" onclick="saveCurrentPromptAsTemplate()">&#128203; Template</button>
-                  <button class="btn btn-secondary" onclick="clearPrompt()">&#8634; Reset</button>
+                  <button class="btn btn-secondary" onclick="saveCurrentPromptAsTemplate()" data-tooltip="Enregistre le prompt actuel comme template réutilisable.">&#128203; Template</button>
+                  <button class="btn btn-secondary" onclick="clearPrompt()" data-tooltip="Efface le champ de saisie et réinitialise l'affichage.">&#8634; Reset</button>
                 </div>
               </div>
             </div>
@@ -151,15 +156,24 @@
               <div class="card" style="height:100%;position:relative;">
                 <div class="loading-overlay" id="loadingOverlay">
                   <div class="spinner"></div>
-                  <p>Optimisation en cours...</p>
+                  <div class="progress-container">
+                    <div class="progress-bar-bg">
+                      <div class="progress-bar-fill" id="progressFill" style="width:0%"></div>
+                    </div>
+                    <div class="progress-info">
+                      <span id="progressPhase">Optimisation en cours...</span>
+                      <span id="progressPct">0%</span>
+                    </div>
+                    <div class="progress-eta" id="progressEta"></div>
+                  </div>
                 </div>
 
                 <div class="card-header">
-                  <h3>Résultats</h3>
+                  <h3 data-tooltip="Résultats de l'optimisation : comparez les versions et les coûts.">Résultats</h3>
                   <span class="badge" id="resultBadge">En attente</span>
                 </div>
 
-                <div class="results-placeholder" id="resultsPlaceholder">
+                <div class="results-placeholder" id="resultsPlaceholder" data-tooltip="Aucun résultat pour l'instant. Lancez une optimisation pour voir les versions apparaître ici.">
                   <div class="placeholder-icon">&#9889;</div>
                   <h3>Prêt à optimiser</h3>
                   <p>Entrez votre prompt, configurez l'optimiseur, puis cliquez sur "Optimiser".</p>
@@ -170,45 +184,22 @@
                   <div class="version-pills" id="versionPills"></div>
                   <!-- Version detail -->
                   <div id="versionDetail"></div>
+                  <!-- Cost comparison (auto-generated) -->
+                  <div id="costComparison" style="margin-top:20px;"></div>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- ===== SIMULATOR VIEW ===== -->
-        <div class="view" id="view-simulator">
-          <div class="sim-layout">
-            <div class="card" style="flex:1;">
-              <div class="card-header">
-                <h3>Prompt original</h3>
-              </div>
-              <textarea id="simPromptOriginal" placeholder="Prompt original..." style="min-height:120px;" oninput="onSimPromptChange()"></textarea>
-            </div>
-            <div class="card" style="flex:1;">
-              <div class="card-header">
-                <h3>Prompt optimisé</h3>
-              </div>
-              <textarea id="simPromptOptimized" placeholder="Prompt optimisé (collez une version optimisée)..." style="min-height:120px;" oninput="onSimPromptChange()"></textarea>
-            </div>
-          </div>
-          <div style="display:flex;gap:12px;margin-top:12px;">
-            <button class="btn btn-primary" onclick="simulateCosts()">
-              &#36; Comparer les coûts
-            </button>
-            <button class="btn btn-secondary" onclick="fillSimFromOptimizer()">
-              &#8634; Charger depuis l'optimiseur
-            </button>
-          </div>
-          <div id="simResults" style="margin-top:16px;"></div>
-        </div>
+<!-- Simulator merged into Optimizer -->
 
         <!-- ===== HISTORY VIEW ===== -->
         <div class="view" id="view-history">
           <div class="card">
             <div class="card-header">
-              <h3>Historique des optimisations</h3>
-              <button class="btn btn-danger btn-sm" onclick="clearHistory()">Tout effacer</button>
+              <h3 data-tooltip="Historique des prompts optimisés. Chaque entrée montre le taux d'économie et la version utilisée.">Historique des optimisations</h3>
+              <button class="btn btn-danger btn-sm" onclick="clearHistory()" data-tooltip="Supprime tout l'historique. Action irréversible.">Tout effacer</button>
             </div>
             <div class="history-list" id="historyList">
               <div class="empty-state">
@@ -224,8 +215,8 @@
         <div class="view" id="view-keys">
           <div class="card">
             <div class="card-header">
-              <h3>Gestion des clés API</h3>
-              <p style="color:var(--text-secondary);font-size:13px;">Les clés sont stockées localement de façon sécurisée</p>
+              <h3 data-tooltip="Configurez vos clés d'API pour utiliser les fournisseurs LLM comme moteur d'optimisation.">Gestion des clés API</h3>
+              <p style="color:var(--text-secondary);font-size:13px;">Les clés sont stockées localement et chiffrées (AES-256)</p>
             </div>
             <div class="keys-grid" id="keysGrid">
               <div class="key-card">
@@ -235,9 +226,9 @@
                 </div>
                 <div class="key-value-display" id="keyDisplay-openai">sk-****</div>
                 <div class="key-input-group">
-                  <input type="password" id="keyInput-openai" placeholder="sk-...">
-                  <button class="btn btn-primary btn-sm" onclick="saveKey('openai')">Sauver</button>
-                  <button class="btn btn-danger btn-sm" onclick="deleteKey('openai')">X</button>
+                  <input type="password" id="keyInput-openai" placeholder="sk-..." data-tooltip="Entrez votre clé API OpenAI (commence par sk-...). Stockée et chiffrée localement.">
+                  <button class="btn btn-primary btn-sm" onclick="saveKey('openai')" data-tooltip="Sauvegarde la clé API de manière sécurisée.">Sauver</button>
+                  <button class="btn btn-danger btn-sm" onclick="deleteKey('openai')" data-tooltip="Supprime la clé API enregistrée.">X</button>
                 </div>
               </div>
               <div class="key-card">
@@ -247,9 +238,9 @@
                 </div>
                 <div class="key-value-display" id="keyDisplay-anthropic">sk-ant-****</div>
                 <div class="key-input-group">
-                  <input type="password" id="keyInput-anthropic" placeholder="sk-ant-...">
-                  <button class="btn btn-primary btn-sm" onclick="saveKey('anthropic')">Sauver</button>
-                  <button class="btn btn-danger btn-sm" onclick="deleteKey('anthropic')">X</button>
+                  <input type="password" id="keyInput-anthropic" placeholder="sk-ant-..." data-tooltip="Entrez votre clé API Anthropic (commence par sk-ant-...).">
+                  <button class="btn btn-primary btn-sm" onclick="saveKey('anthropic')" data-tooltip="Sauvegarde la clé API de manière sécurisée.">Sauver</button>
+                  <button class="btn btn-danger btn-sm" onclick="deleteKey('anthropic')" data-tooltip="Supprime la clé API enregistrée.">X</button>
                 </div>
               </div>
               <div class="key-card">
@@ -259,9 +250,9 @@
                 </div>
                 <div class="key-value-display" id="keyDisplay-google">AIza****</div>
                 <div class="key-input-group">
-                  <input type="password" id="keyInput-google" placeholder="AIza...">
-                  <button class="btn btn-primary btn-sm" onclick="saveKey('google')">Sauver</button>
-                  <button class="btn btn-danger btn-sm" onclick="deleteKey('google')">X</button>
+                  <input type="password" id="keyInput-google" placeholder="AIza..." data-tooltip="Entrez votre clé API Google (AIza...).">
+                  <button class="btn btn-primary btn-sm" onclick="saveKey('google')" data-tooltip="Sauvegarde la clé API de manière sécurisée.">Sauver</button>
+                  <button class="btn btn-danger btn-sm" onclick="deleteKey('google')" data-tooltip="Supprime la clé API enregistrée.">X</button>
                 </div>
               </div>
             </div>
@@ -272,8 +263,8 @@
         <div class="view" id="view-templates">
           <div class="card">
             <div class="card-header">
-              <h3>Templates prêts à l'emploi</h3>
-              <button class="btn btn-primary btn-sm" onclick="showAddTemplateModal()">+ Nouveau</button>
+              <h3 data-tooltip="Templates de prompts réutilisables. Créez, chargez et gérez vos modèles ici.">Templates prêts à l'emploi</h3>
+              <button class="btn btn-primary btn-sm" onclick="showAddTemplateModal()" data-tooltip="Créez un nouveau template de prompt personnalisé.">+ Nouveau</button>
             </div>
             <div class="templates-grid" id="templatesGrid">
               <div class="empty-state">
@@ -285,25 +276,144 @@
           </div>
         </div>
 
+        <!-- ===== DOCUMENTS VIEW ===== -->
+        <div class="view" id="view-documents">
+          <div class="doc-layout">
+            <!-- Upload area -->
+            <div class="card" id="docUploadCard">
+              <div class="card-header">
+                <h3 data-tooltip="Importez un fichier (PDF, DOCX, PPTX, XLSX, TXT, MD, etc.) pour l'analyser et le compresser.">&#128196; Importer un document</h3>
+                <span class="badge" id="docFormatsBadge"></span>
+              </div>
+                <div class="doc-dropzone" id="docDropzone" ondragover="event.preventDefault()" ondrop="onDocDrop(event)" data-tooltip="Glissez-déposez votre fichier ici, ou cliquez pour parcourir. 12 formats supportés.">
+                  <div class="dropzone-icon">&#128196;</div>
+                  <p>Déposer un fichier ici ou</p>
+                  <input type="file" id="docFileInput" onchange="onDocFileSelect()" style="display:none">
+                  <button class="btn btn-primary btn-sm" onclick="document.getElementById('docFileInput').click()">Choisir un fichier</button>
+                  <p class="dropzone-hint">Formats supportés: .docx, .pdf, .pptx, .xlsx, .txt, .md, .odt, .html, .csv, .json, .xml, .rtf</p>
+                </div>
+              <div id="docUploadProgress" style="display:none;padding:12px;">
+                <div class="spinner"></div>
+                <p>Analyse du document en cours...</p>
+              </div>
+            </div>
+
+            <!-- Analysis results -->
+            <div id="docResults" style="display:none;">
+              <div class="doc-meta-grid">
+                <div class="card doc-meta-card" data-tooltip="Format du fichier importé (DOCX, PDF, PPTX, etc.).">
+                  <div class="doc-meta-label">Format</div>
+                  <div class="doc-meta-value" id="docFormat">-</div>
+                </div>
+                <div class="card doc-meta-card" data-tooltip="Registre linguistique détecté automatiquement.">
+                  <div class="doc-meta-label">Registre</div>
+                  <div class="doc-meta-value" id="docRegister">-</div>
+                </div>
+                <div class="card doc-meta-card" data-tooltip="Taille du fichier original sur le disque.">
+                  <div class="doc-meta-label">Taille</div>
+                  <div class="doc-meta-value" id="docSize">-</div>
+                </div>
+                <div class="card doc-meta-card" data-tooltip="Nombre de tokens estimé dans le document original.">
+                  <div class="doc-meta-label">Tokens</div>
+                  <div class="doc-meta-value" id="docTokens">-</div>
+                </div>
+                <div class="card doc-meta-card" data-tooltip="Nombre de sections ou chapitres détectés.">
+                  <div class="doc-meta-label">Sections</div>
+                  <div class="doc-meta-value" id="docSections">-</div>
+                </div>
+                <div class="card doc-meta-card" data-tooltip="Nombre de tableaux identifiés (format DOCX/PDF).">
+                  <div class="doc-meta-label">Tableaux</div>
+                  <div class="doc-meta-value" id="docTables">-</div>
+                </div>
+              </div>
+
+              <div class="doc-compress-bar">
+                  <div class="control-group">
+                    <label class="label-tip" data-tooltip="Light : garde la structure du document. Aggressive : extrait uniquement l'essentiel (max 50% tokens).">Mode compression</label>
+                    <select id="docCompressMode">
+                      <option value="light">Light (structure préservée)</option>
+                      <option value="balanced">Balanced (restructuration)</option>
+                      <option value="aggressive">Aggressive (KOMPRESS neural)</option>
+                      <option value="max">Max (KOMPRESS neural + rule-based)</option>
+                      <option value="industrial">Industrial (KOMPRESS neural pro)</option>
+                    </select>
+                  </div>
+                  <div class="control-group">
+                    <label class="label-tip" data-tooltip="Catégorie du document : scientific, legal, financial, technical, etc. L'optimisation s'adapte au registre.">Catégorie (optionnelle)</label>
+                    <select id="docCategory">
+                    <option value="">Auto-détection</option>
+                    <option value="general">General</option>
+                    <option value="literary">Literary</option>
+                    <option value="scientific">Scientific</option>
+                    <option value="commercial">Commercial</option>
+                    <option value="philosophical">Philosophical</option>
+                    <option value="instructional">Instructional</option>
+                    <option value="legal">Legal</option>
+                    <option value="financial">Financial</option>
+                    <option value="technical">Technical</option>
+                    <option value="administrative">Administrative</option>
+                    <option value="academic">Academic</option>
+                  </select>
+                </div>
+                <button class="btn btn-primary" onclick="compressDoc()" data-tooltip="Re-compresse le document avec les paramètres sélectionnés (mode + catégorie).">
+                  &#9889; Compresser
+                </button>
+              </div>
+
+              <div id="docCompressResults" style="display:none;">
+                <div class="doc-savings-bar">
+                  <div class="savings-stat" data-tooltip="Nombre de tokens dans le document original">
+                    <span class="savings-label">Original</span>
+                    <span class="savings-value" id="docOrigTokens">0</span>
+                  </div>
+                  <div class="savings-arrow">&#8594;</div>
+                  <div class="savings-stat" data-tooltip="Nombre de tokens après compression">
+                    <span class="savings-label">Compressé</span>
+                    <span class="savings-value" id="docCompTokens">0</span>
+                  </div>
+                  <div class="savings-stat savings-highlight" data-tooltip="Taux d'économie de tokens réalisé par la compression">
+                    <span class="savings-label">Économie</span>
+                    <span class="savings-value" id="docSavingsPct">0%</span>
+                  </div>
+                </div>
+                <div class="doc-panels">
+                  <div class="card doc-panel" data-tooltip="Contenu original complet du document importé.">
+                    <div class="card-header"><h3>Original</h3></div>
+                    <div class="doc-panel-content" id="docOriginalPreview"></div>
+                  </div>
+                  <div class="card doc-panel" data-tooltip="Version compressée du document. Copiez-la ou envoyez-la dans l'optimiseur.">
+                    <div class="card-header">
+                      <h3>Compressé</h3>
+                      <button class="btn btn-primary btn-sm" onclick="copyDocCompressed()" data-tooltip="Copie le texte compressé dans le presse-papier">Copier</button>
+                      <button class="btn btn-secondary btn-sm" onclick="sendDocToOptimizer()" data-tooltip="Envoie le texte compressé vers l'Optimizer pour optimisation avancée">&#9889; Optimiser</button>
+                    </div>
+                    <div class="doc-panel-content" id="docCompressedPreview"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- ===== ADMIN / DASHBOARD VIEW ===== -->
         <div class="view" id="view-admin">
           <div class="admin-grid">
 
             <!-- KPI Cards Row -->
             <div class="kpi-row">
-              <div class="kpi-card">
+              <div class="kpi-card" data-tooltip="Nombre total d'optimisations effectuées sur tous les temps.">
                 <div class="kpi-value" id="kpiTotal">-</div>
                 <div class="kpi-label">Optimisations</div>
               </div>
-              <div class="kpi-card">
+              <div class="kpi-card" data-tooltip="Total des tokens économisés grâce à la compression.">
                 <div class="kpi-value" id="kpiTokens">-</div>
                 <div class="kpi-label">Tokens économisés</div>
               </div>
-              <div class="kpi-card">
+              <div class="kpi-card" data-tooltip="Taux de réduction moyen sur l'ensemble des optimisations.">
                 <div class="kpi-value" id="kpiAvg">-</div>
                 <div class="kpi-label">Réd. moyenne</div>
               </div>
-              <div class="kpi-card">
+              <div class="kpi-card" data-tooltip="Nombre d'optimisations réalisées aujourd'hui.">
                 <div class="kpi-value" id="kpiToday">-</div>
                 <div class="kpi-label">Aujourd'hui</div>
               </div>
@@ -311,13 +421,13 @@
 
             <!-- Chart + Mode breakdown -->
             <div class="dashboard-row">
-              <div class="card chart-card">
+              <div class="card chart-card" data-tooltip="Nombre d'optimisations par jour sur les 7 derniers jours.">
                 <div class="card-header"><h3>Tendance 7 jours</h3></div>
                 <div id="chart7d" style="height:160px;display:flex;align-items:end;gap:4px;padding:8px 0;">
                   <div style="color:var(--text-muted);font-size:13px;width:100%;text-align:center;">Chargement...</div>
                 </div>
               </div>
-              <div class="card mode-card">
+              <div class="card mode-card" data-tooltip="Répartition des modes d'optimisation utilisés (Light / Balanced / Aggressive).">
                 <div class="card-header"><h3>Par mode</h3></div>
                 <div id="modeBreakdown"></div>
               </div>
@@ -325,22 +435,22 @@
 
             <!-- Recent + Service -->
             <div class="dashboard-row">
-              <div class="card recent-card">
+              <div class="card recent-card" data-tooltip="Les 5 dernières optimisations effectuées avec leurs gains.">
                 <div class="card-header"><h3>Récent</h3></div>
                 <div id="recentList" style="font-size:13px;">
                   <div style="color:var(--text-muted);">Aucune donnée</div>
                 </div>
               </div>
-              <div class="card" style="border:1px solid #ff444444;">
+              <div class="card" style="border:1px solid #ff444444;" data-tooltip="Redémarrez le service backend en cas de problème de connexion.">
                 <div class="card-header"><h3>&#9881; Service</h3></div>
-                <button class="btn btn-danger" id="btnRestart" onclick="restartBackend()" style="width:100%;padding:12px;font-size:16px;font-weight:bold;">
+                <button class="btn btn-danger" id="btnRestart" onclick="restartBackend()" style="width:100%;padding:12px;font-size:16px;font-weight:bold;" data-tooltip="Redémarre le backend FastAPI (port 8765). Utile après une mise à jour.">
                   &#8635; RESTART
                 </button>
-                <div id="restartStatus" style="display:none;margin-top:8px;padding:8px;background:var(--bg-tertiary);border-radius:8px;text-align:center;">
+                <div id="restartStatus" style="display:none;margin-top:8px;padding:8px;background:var(--bg-surface-solid);border-radius:8px;text-align:center;">
                   <div class="spinner" style="margin:0 auto 8px;"></div>
                   <span id="restartMsg">Redémarrage...</span>
                 </div>
-                <div id="adminLog" style="margin-top:8px;background:var(--bg-tertiary);border-radius:8px;padding:8px;max-height:160px;overflow-y:auto;font-family:monospace;font-size:12px;white-space:pre-wrap;">
+                <div id="adminLog" style="margin-top:8px;background:var(--bg-surface-solid);border-radius:8px;padding:8px;max-height:160px;overflow-y:auto;font-family:monospace;font-size:12px;white-space:pre-wrap;">
                   <div style="color:var(--text-muted);">[SYSTEM] Console chargée</div>
                 </div>
               </div>
@@ -355,10 +465,10 @@
 
   <!-- Key Modal -->
   <div class="modal-overlay" id="keyModal">
-    <div class="modal">
+    <div class="modal" data-tooltip="Saisissez votre clé API. Elle sera stockée localement et chiffrée (AES-256).">
       <h3>Configurer la clé API</h3>
       <p style="color:var(--text-secondary);margin-bottom:16px;font-size:14px;" id="keyModalProvider">Fournisseur</p>
-      <input type="password" id="keyModalInput" placeholder="Entrez votre clé API" style="margin-bottom:8px;">
+      <input type="password" id="keyModalInput" placeholder="Entrez votre clé API" style="margin-bottom:8px;" data-tooltip="La clé ne quitte jamais votre machine. Stockée chiffrée dans la base locale.">
       <p style="font-size:12px;color:var(--text-muted);">La clé est stockée localement et chiffrée.</p>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeKeyModal()">Annuler</button>
@@ -369,11 +479,11 @@
 
   <!-- Template Modal -->
   <div class="modal-overlay" id="templateModal">
-    <div class="modal">
+    <div class="modal" data-tooltip="Créez un template réutilisable pour gagner du temps.">
       <h3>Nouveau template</h3>
       <div style="display:flex;gap:12px;margin-bottom:12px;">
-        <input type="text" id="templateNameInput" placeholder="Nom du template" style="flex:1;">
-        <select id="templateCategoryInput" style="width:150px;">
+        <input type="text" id="templateNameInput" placeholder="Nom du template" style="flex:1;" data-tooltip="Donnez un nom clair à votre template (ex: 'Analyse de logs')">
+        <select id="templateCategoryInput" style="width:150px;" data-tooltip="Catégorie du template : général, code, écriture, analyse ou créatif">
           <option value="general">General</option>
           <option value="coding">Coding</option>
           <option value="writing">Writing</option>
@@ -381,7 +491,7 @@
           <option value="creative">Creative</option>
         </select>
       </div>
-      <textarea id="templateContentInput" placeholder="Contenu du template..." style="min-height:150px;"></textarea>
+      <textarea id="templateContentInput" placeholder="Contenu du template..." style="min-height:150px;" data-tooltip="Texte du template. Utilisez {variables} pour les parties changeantes."></textarea>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeTemplateModal()">Annuler</button>
         <button class="btn btn-primary" onclick="saveTemplate()">Créer</button>
@@ -390,7 +500,7 @@
   </div>
 
   <!-- Toast Container -->
-  <div class="toast-container" id="toastContainer"></div>
+  <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
 
   <script src="renderer.js"></script>
 </body>

@@ -18,3 +18,7 @@ dist/
 test_debug*.py
 test_electron.js
 test_telegraph.py
+
+# LLMLingua-2 / KOMPRESS / CAMEMBERT / MODERNBERT model files
+# Download via: python backend/spc/download_models.py
+backend/spc/models/

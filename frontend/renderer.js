@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadKeys();
   await loadHistory();
   await loadTemplates();
+  loadDocFormats();
   setupNavigation();
   setupLiveTokenCounting();
   checkBackendStatus();
@@ -21,10 +22,11 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 async function api(path, options = {}) {
   const url = `${API_BASE}${path}`;
-  const config = {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  };
+  const headers = {};
+  if (!(options.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
+  const config = { headers, ...options };
   const resp = await fetch(url, config);
   if (!resp.ok) {
     const err = await resp.text();
@@ -56,7 +58,7 @@ function setupNavigation() {
       document.getElementById(`view-${view}`).classList.add("active");
       const titles = {
         optimizer: ["Optimizer", "Optimisez vos prompts et réduisez vos coûts"],
-        simulator: ["Simulateur", "Comparez les coûts entre modèles"],
+        documents: ["Documents", "Analysez et compressez vos documents"],
         history: ["Historique", "Retrouvez toutes vos optimisations"],
         keys: ["API Keys", "Gérez vos clés d'API pour l'optimisation"],
         templates: ["Templates", "Templates prêts à l'emploi"],
@@ -153,6 +155,7 @@ function showKeyModal() {
   document.getElementById("keyModalProvider").textContent = `Fournisseur: ${provider}`;
   document.getElementById("keyModalInput").value = "";
   document.getElementById("keyModal").classList.add("active");
+  document.getElementById("keyModalInput").focus();
   keyModalCallback = async (key) => {
     await saveKey(provider, key);
   };
@@ -161,7 +164,17 @@ function showKeyModal() {
 function closeKeyModal() {
   document.getElementById("keyModal").classList.remove("active");
   keyModalCallback = null;
+  document.getElementById("keyModalInput").blur();
 }
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    const keyModal = document.getElementById("keyModal");
+    const templateModal = document.getElementById("templateModal");
+    if (keyModal.classList.contains("active")) closeKeyModal();
+    if (templateModal.classList.contains("active")) closeTemplateModal();
+  }
+});
 
 async function saveKeyFromModal() {
   const key = document.getElementById("keyModalInput").value.trim();
@@ -243,8 +256,8 @@ async function loadTemplates() {
         <div class="template-preview">${escapeHtml(t.content.substring(0, 120))}</div>
         <div class="template-category">${escapeHtml(t.category)}</div>
         <div style="margin-top:8px;">
-          <button class="btn btn-secondary btn-sm use-template-btn">Utiliser</button>
-          <button class="btn btn-danger btn-sm del-template-btn" data-id="${t.id}">X</button>
+          <button class="btn btn-secondary btn-sm use-template-btn" data-tooltip="Charge ce template dans l'éditeur de l'Optimizer">Utiliser</button>
+          <button class="btn btn-danger btn-sm del-template-btn" data-id="${t.id}" data-tooltip="Supprime ce template définitivement">X</button>
         </div>`;
       grid.appendChild(div);
 
@@ -298,6 +311,7 @@ function showAddTemplateModal() {
   document.getElementById("templateContentInput").value = "";
   document.getElementById("templateCategoryInput").value = "general";
   document.getElementById("templateModal").classList.add("active");
+  document.getElementById("templateNameInput").focus();
 }
 
 function closeTemplateModal() {
@@ -334,6 +348,23 @@ async function deleteTemplate(id) {
 }
 
 // ===== OPTIMIZER =====
+const _PHASE_LABELS = {
+  "queued": "En attente",
+  "counting": "Analyse du prompt",
+  "sanctuary": "Extraction des blocs protégés",
+  "language": "Détection de langue",
+  "parsing": "Découpage et filtrage",
+  "classification": "Classification des phrases",
+  "category": "Détection de catégorie",
+  "light": "Compression Light",
+  "balanced": "Compression Balanced",
+  "spc_base": "Protection sémantique SPC",
+  "aggressive": "Compression Aggressive",
+  "max_industrial": "Compression Max & Industrial",
+  "saving": "Enregistrement",
+  "complete": "Terminé",
+};
+
 async function optimize() {
   const prompt = document.getElementById("promptInput").value.trim();
   if (!prompt) {
@@ -352,8 +383,15 @@ async function optimize() {
   document.getElementById("loadingOverlay").classList.add("active");
   document.getElementById("resultsPlaceholder").style.display = "none";
 
+  // Reset progress bar
+  document.getElementById("progressFill").style.width = "0%";
+  document.getElementById("progressPct").textContent = "0%";
+  document.getElementById("progressPhase").textContent = "Démarrage...";
+  document.getElementById("progressEta").textContent = "";
+
   try {
-    const data = await api("/api/optimize", {
+    // Start async optimization
+    const { session_id } = await api("/api/optimize", {
       method: "POST",
       body: JSON.stringify({
         prompt,
@@ -364,24 +402,60 @@ async function optimize() {
       }),
     });
 
-    currentVersions = data.versions || [];
-    currentVersionIndex = 0;
-    renderVersions();
-    renderVersionDetail(0);
+    // Poll progress
+    let done = false;
+    let startTime = Date.now();
+    while (!done) {
+      await new Promise(r => setTimeout(r, 400));
+      const prog = await api(`/api/progress/${session_id}`);
 
-    const src = data.source || "fallback";
-    const srcLabel = src === "api" ? "API" : "Local";
-    const srcColor = src === "api" ? "var(--accent-green)" : "var(--text-muted)";
-    document.getElementById("resultBadge").innerHTML =
-      `${data.original_tokens} tokens · <span style="color:${srcColor}">${srcLabel}</span>`;
-    document.getElementById("resultsContent").style.display = "block";
+      const pct = prog.progress || 0;
+      const phase = prog.phase || "";
+      document.getElementById("progressFill").style.width = Math.min(pct, 100) + "%";
+      document.getElementById("progressPct").textContent = pct + "%";
+      document.getElementById("progressPhase").textContent =
+        _PHASE_LABELS[phase] || phase || "Optimisation...";
 
-    showToast(
-      `Optimisation terminée! Économie jusqu'à ${currentVersions[0]?.savings_percent || 0}%`,
-      "success"
-    );
+      // ETA
+      if (pct > 0 && pct < 100) {
+        const elapsed = (Date.now() - startTime) / 1000;
+        const eta = Math.round((elapsed / pct) * (100 - pct));
+        document.getElementById("progressEta").textContent =
+          eta > 0 ? `~${eta}s restantes` : "";
+      }
 
-    await loadHistory();
+      if (pct >= 100) {
+        done = true;
+        const data = prog.result;
+        if (!data) throw new Error("Aucun résultat retourné");
+
+        currentVersions = data.versions || [];
+        currentVersionIndex = 0;
+        renderVersions();
+        renderVersionDetail(0);
+
+        const src = data.source || "fallback";
+        const srcLabel = src === "api" ? "API" : "Local";
+        const srcColor = src === "api" ? "var(--accent-green)" : "var(--text-muted)";
+        const catLabel = data.category
+          ? data.category.charAt(0).toUpperCase() + data.category.slice(1)
+          : "";
+        document.getElementById("resultBadge").innerHTML =
+          `${data.original_tokens} tokens · <span style="color:${srcColor}">${srcLabel}</span>` +
+          (catLabel ? ` · <span style="color:var(--accent-blue)">${escapeHtml(catLabel)}</span>` : "");
+
+        document.getElementById("resultsContent").style.display = "block";
+
+        showToast(
+          `Optimisation terminée! Économie jusqu'à ${currentVersions[0]?.savings_percent || 0}%`,
+          "success"
+        );
+
+        await loadHistory();
+      } else if (pct < 0) {
+        throw new Error(prog.error || "Erreur lors de l'optimisation");
+      }
+    }
   } catch (err) {
     showToast("Erreur: " + err.message, "error");
     document.getElementById("resultsPlaceholder").style.display = "flex";
@@ -400,7 +474,8 @@ function renderVersions() {
     const pill = document.createElement("button");
     pill.className = `pill ${i === currentVersionIndex ? "active" : ""}`;
     const badgeClass = v.label?.toLowerCase() || "";
-    pill.innerHTML = `${v.label} (-${v.savings_percent || 0}%)`;
+    pill.innerHTML = `${escapeHtml(v.label || "")} (-${v.savings_percent || 0}%)`;
+    pill.setAttribute("data-tooltip", `Version ${v.label || ""} — économie de ${v.savings_percent || 0}%. Cliquez pour voir les détails.`);
     pill.onclick = () => {
       currentVersionIndex = i;
       document.querySelectorAll(".pill").forEach((p) => p.classList.remove("active"));
@@ -446,14 +521,20 @@ function renderVersionDetail(index) {
         </div>
       </div>
       <div class="version-changes">
-        ${changes.map((c) => `<span class="change-tag">${escapeHtml(c)}</span>`).join("")}
+        ${changes.map((c) => `<span class="change-tag">${escapeHtml(c.description || c)}</span>`).join("")}
       </div>
       <div class="version-actions">
-        <button class="btn btn-primary btn-sm" onclick="copyVersion(${index})">Copier</button>
-        <button class="btn btn-secondary btn-sm" onclick="useVersion(${index})">Utiliser cette version</button>
+        <button class="btn btn-primary btn-sm" onclick="copyVersion(${index})" data-tooltip="Copie le texte optimisé dans le presse-papier">Copier</button>
+        <button class="btn btn-secondary btn-sm" onclick="useVersion(${index})" data-tooltip="Remplace le prompt de l'éditeur par cette version">Utiliser cette version</button>
       </div>
     </div>
   `;
+
+  // Auto-show cost comparison for this version
+  const origText = currentPrompt || v.prompt || "";
+  const optText = v.prompt || "";
+  const costEl = document.getElementById("costComparison");
+  if (costEl) renderCostComparison(origText, optText, costEl);
 }
 
 function copyVersion(index) {
@@ -483,7 +564,7 @@ async function loadKeys() {
         status.className = `key-status ${k.key_masked !== "****" ? "configured" : "missing"}`;
       }
     });
-  } catch {}
+  } catch (err) { console.warn("Failed to load keys:", err); }
 }
 
 async function saveKey(provider, keyValue) {
@@ -512,32 +593,12 @@ async function deleteKey(provider) {
     showToast(`Clé ${provider} supprimée`, "info");
     await loadKeys();
     updateKeyStatus(provider);
-  } catch {}
+  } catch (err) { console.warn("Failed to delete key:", err); }
 }
 
-// ===== SIMULATOR =====
-function onSimPromptChange() {
-  // Just count tokens for the original field
-  const text = document.getElementById("simPromptOriginal").value;
-  try {
-    api("/api/count-tokens", {
-      method: "POST",
-      body: JSON.stringify({ text, model: "gpt-4o" }),
-    }).then((data) => {
-      document.getElementById("simTokens") &&
-        (document.getElementById("simTokens").textContent = data.tokens.toLocaleString());
-    });
-  } catch {}
-}
-
-async function simulateCosts() {
-  const original = document.getElementById("simPromptOriginal").value.trim();
-  const optimized = document.getElementById("simPromptOptimized").value.trim();
-  if (!original && !optimized) {
-    showToast("Entrez au moins un prompt", "error");
-    return;
-  }
-
+// ===== COST COMPARISON (merged from Simulator) =====
+async function renderCostComparison(originalText, optimizedText, targetEl) {
+  if (!originalText && !optimizedText) return;
   const allModelIds = Object.keys(models);
 
   async function getCosts(text) {
@@ -551,37 +612,29 @@ async function simulateCosts() {
 
   try {
     const [origResults, optResults] = await Promise.all([
-      getCosts(original),
-      getCosts(optimized),
+      getCosts(originalText),
+      getCosts(optimizedText),
     ]);
 
-    const modelIds = origResults
-      ? origResults.map((r) => r.model)
-      : optResults
-      ? optResults.map((r) => r.model)
-      : [];
+    const modelIds = origResults ? origResults.map((r) => r.model) : optResults ? optResults.map((r) => r.model) : [];
 
-    let html = `<div class="card"><h3 style="margin-bottom:16px;">Comparaison des coûts</h3>
+    let html = `<div class="card" data-tooltip="Comparaison des coûts entre le prompt original et l'optimisé, pour tous les modèles disponibles."><h3 style="margin-bottom:16px;">&#36; Comparaison des coûts sur tous les modèles</h3>
       <table class="model-cost-table">
-        <thead>
-          <tr>
-            <th>Modèle</th>
-            <th>Original</th>
-            ${optResults ? "<th>Optimisé</th>" : ""}
-            ${optResults ? "<th>Économie</th>" : ""}
-          </tr>
-        </thead>
+        <thead><tr>
+          <th>Modèle</th>
+          <th>Original</th>
+          ${optResults ? "<th>Optimisé</th>" : ""}
+          ${optResults ? "<th>Économie</th>" : ""}
+        </tr></thead>
         <tbody>`;
 
     modelIds.forEach((modelId) => {
       const orig = origResults ? origResults.find((r) => r.model === modelId) : null;
       const opt = optResults ? optResults.find((r) => r.model === modelId) : null;
-
       const origCost = orig ? orig.cost : 0;
       const optCost = opt ? opt.cost : 0;
       const savings = origCost - optCost;
       const savingsPct = origCost > 0 ? ((savings / origCost) * 100).toFixed(1) : "-";
-
       const costClass = (c) => (c < 0.001 ? "low" : c < 0.01 ? "medium" : "high");
 
       html += `<tr>
@@ -592,11 +645,10 @@ async function simulateCosts() {
       </tr>`;
     });
 
-    // Token comparison row
     const origTokens = origResults ? origResults[0]?.input_tokens || 0 : 0;
     const optTokens = optResults ? optResults[0]?.input_tokens || 0 : 0;
     if (origTokens || optTokens) {
-      html += `<tr style="border-top:2px solid var(--border);font-weight:600;">
+      html += `<tr style="border-top:2px solid var(--border-light);font-weight:600;">
         <td>Tokens</td>
         <td>${origTokens.toLocaleString()}</td>
         ${optResults ? `<td>${optTokens.toLocaleString()}</td>` : ""}
@@ -605,25 +657,11 @@ async function simulateCosts() {
     }
 
     html += "</tbody></table></div>";
-    document.getElementById("simResults").innerHTML = html;
+    targetEl.innerHTML = html;
   } catch (err) {
-    showToast("Erreur: " + err.message, "error");
+    targetEl.innerHTML = `<div class="card" style="color:var(--text-muted);text-align:center;">Comparaison des coûts indisponible</div>`;
+    console.warn("Cost comparison failed:", err);
   }
-}
-
-function fillSimFromOptimizer() {
-  // Fill original from optimizer input
-  const optInput = document.getElementById("promptInput").value;
-  if (optInput) {
-    document.getElementById("simPromptOriginal").value = optInput;
-  }
-  // Fill optimized from first version result
-  if (currentVersions.length > 0) {
-    document.getElementById("simPromptOptimized").value = currentVersions[1]?.prompt || currentVersions[0]?.prompt || "";
-  }
-  showToast("Prompts chargés depuis l'optimiseur", "info");
-  // Auto-run comparison
-  simulateCosts();
 }
 
 // ===== HISTORY =====
@@ -657,8 +695,8 @@ async function loadHistory() {
           </div>
         </div>
         <div class="history-item-actions">
-          <button class="btn btn-secondary btn-sm history-load-btn" data-optimized="${escapeHtml(h.optimized_prompt)}">Charger</button>
-          <button class="btn btn-danger btn-sm history-del-btn" data-id="${h.id}">X</button>
+          <button class="btn btn-secondary btn-sm history-load-btn" data-optimized="${escapeHtml(h.optimized_prompt)}" data-tooltip="Charge le résultat optimisé dans l'éditeur">Charger</button>
+          <button class="btn btn-danger btn-sm history-del-btn" data-id="${h.id}" data-tooltip="Supprime cette entrée de l'historique">X</button>
         </div>
       </div>
     `).join("");
@@ -826,7 +864,7 @@ function renderChart(days) {
     const pct = d.avg_savings || 0;
     const label = d.day.slice(5);
     return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;">
-      <div class="bar" style="height:${h}px;background:rgba(0,230,118,${0.4 + (d.count/max)*0.6});" title="${d.count} opt. (${pct}% moy.)"></div>
+      <div class="bar" style="height:${h}px;background:rgba(0,230,118,${0.4 + (d.count/max)*0.6});" title="${d.count} opt. (${pct}% moy.)" data-tooltip="${d.count} optimisations le ${d.day} (moy. ${pct}% d'économie)"></div>
       <div class="bar-label">${label}</div>
     </div>`;
   }).join("");
@@ -842,7 +880,7 @@ function renderModeBreakdown(modes) {
   const colors = { Light: "#818cf8", Balanced: "#fbbf24", Agressive: "#ef4444" };
   container.innerHTML = modes.map(m => {
     const pct = total > 0 ? Math.round((m.count / total) * 100) : 0;
-    return `<div class="mode-item">
+    return `<div class="mode-item" data-tooltip="Mode ${m.version} : ${m.count} utilisations, économie moyenne ${m.avg_savings || 0}%">
       <div><span class="mode-dot" style="background:${colors[m.version] || '#888'}"></span><span class="mode-name">${m.version}</span></div>
       <div><span class="mode-pct">${m.avg_savings || 0}%</span> <span class="mode-count">(${m.count} / ${pct}%)</span></div>
     </div>`;
@@ -866,23 +904,184 @@ function renderRecent(items) {
   }).join("");
 }
 
-// Auto-refresh dashboard on admin tab show
 document.addEventListener("DOMContentLoaded", () => {
-  const observer = new MutationObserver(() => {
-    const adminView = document.getElementById("view-admin");
-    if (adminView && adminView.style.display !== "none") {
-      loadDashboard();
-    }
-  });
   const navItems = document.querySelectorAll(".nav-item");
   navItems.forEach(item => {
     item.addEventListener("click", () => {
       setTimeout(() => {
         if (item.dataset.view === "admin") loadDashboard();
+        if (item.dataset.view === "history") loadHistory();
       }, 100);
     });
   });
 });
+
+// ===== DOCUMENTS =====
+let _currentDocData = null;
+
+async function loadDocFormats() {
+  try {
+    const data = await api("/api/document/formats");
+    const badge = document.getElementById("docFormatsBadge");
+    if (badge) badge.textContent = (data.formats || []).length + " formats";
+  } catch (_) { console.warn("Failed to load document formats", _); }
+}
+
+function onDocDrop(e) {
+  e.preventDefault();
+  document.getElementById("docDropzone").classList.remove("dragover");
+  const file = e.dataTransfer.files[0];
+  if (file) uploadDoc(file);
+}
+
+function onDocFileSelect() {
+  const file = document.getElementById("docFileInput").files[0];
+  if (file) uploadDoc(file);
+}
+
+async function uploadDoc(file) {
+  const MAX_MB = 50;
+  if (file.size > MAX_MB * 1024 * 1024) {
+    showToast("Fichier trop volumineux (max " + MAX_MB + "MB)", "error");
+    return;
+  }
+
+  document.getElementById("docUploadProgress").style.display = "block";
+  document.getElementById("docDropzone").style.display = "none";
+  document.getElementById("docResults").style.display = "none";
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    const data = await api("/api/document/compress", {
+      method: "POST",
+      body: formData,
+    });
+
+    _currentDocData = data;
+
+    document.getElementById("docFormat").textContent = (data.format || "?").toUpperCase();
+    document.getElementById("docRegister").textContent = data.category || data.register || "?";
+    document.getElementById("docSize").textContent = formatFileSize(file.size);
+    document.getElementById("docTokens").textContent = (data.original_tokens || 0).toLocaleString();
+    document.getElementById("docSections").textContent = data.sections || "?";
+    document.getElementById("docTables").textContent = data.tables || "0";
+
+    document.getElementById("docOrigTokens").textContent = (data.original_tokens || 0).toLocaleString();
+    document.getElementById("docCompTokens").textContent = (data.compressed_tokens || 0).toLocaleString();
+    document.getElementById("docSavingsPct").textContent = "-" + (data.savings_percent || 0) + "%";
+
+    document.getElementById("docOriginalPreview").textContent = data.original_text || data.preview_original || "";
+    document.getElementById("docCompressedPreview").textContent = data.compressed_text || data.preview_compressed || "";
+
+    document.getElementById("docResults").style.display = "block";
+    document.getElementById("docCompressResults").style.display = "block";
+    showToast("Document analysé et compressé avec succès", "success");
+  } catch (err) {
+    showToast("Erreur: " + err.message, "error");
+    document.getElementById("docDropzone").style.display = "block";
+  }
+
+  document.getElementById("docUploadProgress").style.display = "none";
+}
+
+async function compressDoc() {
+  const fileInput = document.getElementById("docFileInput");
+  if (!fileInput.files[0]) {
+    showToast("Veuillez d'abord importer un document", "error");
+    return;
+  }
+
+  const mode = document.getElementById("docCompressMode").value;
+  const category = document.getElementById("docCategory").value;
+
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]);
+  formData.append("mode", mode);
+  if (category) formData.append("category", category);
+
+  // Show progress
+  document.getElementById("loadingOverlay").classList.add("active");
+  document.getElementById("progressFill").style.width = "0%";
+  document.getElementById("progressPct").textContent = "0%";
+  document.getElementById("progressPhase").textContent = "Compression du document...";
+  document.getElementById("progressEta").textContent = "";
+
+  try {
+    const { session_id } = await api("/api/document/compress", {
+      method: "POST",
+      body: formData,
+    });
+
+    let done = false;
+    const startTime = Date.now();
+    while (!done) {
+      await new Promise(r => setTimeout(r, 400));
+      const prog = await api(`/api/document/progress/${session_id}`);
+
+      const pct = prog.progress || 0;
+      const phase = prog.phase || "";
+      document.getElementById("progressFill").style.width = Math.min(pct, 100) + "%";
+      document.getElementById("progressPct").textContent = pct + "%";
+      const labels = { queued: "En attente", parsing: "Analyse du document", compressing: "Compression en cours", finalizing: "Finalisation", complete: "Terminé", error: "Erreur" };
+      document.getElementById("progressPhase").textContent = labels[phase] || phase || "Compression...";
+
+      if (pct > 0 && pct < 100) {
+        const elapsed = (Date.now() - startTime) / 1000;
+        const eta = Math.round((elapsed / pct) * (100 - pct));
+        document.getElementById("progressEta").textContent = eta > 0 ? `~${eta}s restantes` : "";
+      }
+
+      if (pct >= 100) {
+        done = true;
+        const data = prog.result;
+        if (!data) throw new Error("Aucun résultat");
+
+        _currentDocData = data;
+        document.getElementById("docOrigTokens").textContent = (data.original_tokens || 0).toLocaleString();
+        document.getElementById("docCompTokens").textContent = (data.compressed_tokens || 0).toLocaleString();
+        document.getElementById("docSavingsPct").textContent = "-" + (data.savings_percent || 0) + "%";
+        document.getElementById("docCompressedPreview").textContent = data.compressed_text || data.preview_compressed || "";
+        document.getElementById("docRegister").textContent = data.category || data.register || "?";
+        document.getElementById("docTokens").textContent = (data.original_tokens || 0).toLocaleString();
+        document.getElementById("docCompressResults").style.display = "block";
+        showToast("Re-compression effectuée: -" + (data.savings_percent || 0) + "%", "success");
+      } else if (pct < 0) {
+        throw new Error(prog.error || "Erreur de compression");
+      }
+    }
+  } catch (err) {
+    showToast("Erreur: " + err.message, "error");
+  }
+
+  document.getElementById("loadingOverlay").classList.remove("active");
+}
+
+function copyDocCompressed() {
+  const text = _currentDocData?.compressed_text || _currentDocData?.preview_compressed || "";
+  if (!text) { showToast("Aucun texte compressé disponible", "error"); return; }
+  navigator.clipboard.writeText(text).then(() => {
+    showToast("Texte compressé copié !", "success");
+  });
+}
+
+function sendDocToOptimizer() {
+  const text = _currentDocData?.compressed_text || _currentDocData?.preview_compressed || "";
+  if (!text) { showToast("Aucun texte compressé disponible", "error"); return; }
+  document.getElementById("promptInput").value = text;
+  document.querySelector('[data-view="optimizer"]').click();
+  updateTokenCount();
+  showToast("Texte chargé dans l'optimiseur", "info");
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + " o";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " Ko";
+  return (bytes / (1024 * 1024)).toFixed(1) + " Mo";
+}
+
+// ===== END DOCUMENTS =====
 
 // Expose functions globally
 window.optimize = optimize;
@@ -895,8 +1094,6 @@ window.saveKey = saveKey;
 window.deleteKey = deleteKey;
 window.copyVersion = copyVersion;
 window.useVersion = useVersion;
-window.simulateCosts = simulateCosts;
-window.onSimPromptChange = onSimPromptChange;
 window.onPromptChange = onPromptChange;
 window.loadTemplate = loadTemplate;
 window.showAddTemplateModal = showAddTemplateModal;
@@ -904,8 +1101,12 @@ window.closeTemplateModal = closeTemplateModal;
 window.saveTemplate = saveTemplate;
 window.deleteTemplate = deleteTemplate;
 window.saveCurrentPromptAsTemplate = saveCurrentPromptAsTemplate;
-window.fillSimFromOptimizer = fillSimFromOptimizer;
 window.deleteHistoryEntry = deleteHistoryEntry;
 window.clearHistory = clearHistory;
 window.restartBackend = restartBackend;
 window.adminLog = adminLog;
+window.onDocDrop = onDocDrop;
+window.onDocFileSelect = onDocFileSelect;
+window.compressDoc = compressDoc;
+window.copyDocCompressed = copyDocCompressed;
+window.sendDocToOptimizer = sendDocToOptimizer;

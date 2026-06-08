@@ -4,12 +4,15 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import threading as _threading
+import time as _time
+import uuid as _uuid
+import logging
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict
 from backend.token_counter import count_tokens
 from backend.prompt_optimizer import optimize_prompt
 from backend.models import MODELS, OPTIMIZER_MODELS, calculate_cost, get_model_info
@@ -28,6 +31,7 @@ from backend.database import (
     delete_template,
 )
 from backend.utils import encrypt_api_key, decrypt_api_key, mask_api_key
+from backend.document_router import router as document_router
 
 app = FastAPI(title="TokenForge API", version="1.0.0")
 
@@ -63,6 +67,7 @@ class OptimizeResponse(BaseModel):
     original_cost: float
     versions: list
     source: str = "api"
+    category: Optional[str] = None
 
 
 class SaveKeyRequest(BaseModel):
@@ -97,83 +102,137 @@ def count(req: CountRequest):
     return CountResponse(tokens=tokens, model=req.model)
 
 
-@app.post("/api/optimize", response_model=OptimizeResponse)
-def optimize(req: OptimizeRequest):
+# ── Optimisation session store (memory) ──────────────────────────
+_tasks: Dict[str, dict] = {}
+
+def _run_optimize_task(session_id: str, req: OptimizeRequest):
+    """Run optimization in a background thread with progress tracking."""
+    logger = logging.getLogger(__name__)
+    try:
+        def on_progress(phase: str, progress: int):
+            _tasks[session_id].update({
+                "progress": progress,
+                "phase": phase,
+                "elapsed": _time.time() - _tasks[session_id]["start_time"],
+            })
+
+        _tasks[session_id].update({"phase": "counting", "progress": 1})
+        original_tokens = count_tokens(req.prompt, req.target_model)
+        target_info = get_model_info(req.target_model)
+        original_cost = 0.0
+        if target_info:
+            output_ratio = 0.3
+            output_tokens = max(int(original_tokens * output_ratio), 1)
+            original_cost = calculate_cost(req.target_model, original_tokens, output_tokens)
+
+        api_key = None
+        provider = req.optimizer_provider
+        optimizer_model = req.optimizer_model
+        category = req.category
+
+        if provider and optimizer_model:
+            key_data = get_api_key(provider)
+            if key_data:
+                try:
+                    api_key = decrypt_api_key(key_data["key_value"])
+                except (ValueError, Exception):
+                    api_key = key_data["key_value"]
+
+        # Run optimization with progress callbacks
+        from backend.prompt_optimizer import OptiTokenOptimizer
+        opt = OptiTokenOptimizer()
+        result = opt.optimize(
+            req.prompt, category=category, spc_enabled=True,
+            progress_callback=on_progress,
+        )
+        _meta = result.pop("_meta", {})
+
+        # Build versions (same logic as before)
+        versions = []
+        changes_map = {
+            "light": [{"type": "light_clean", "description": "Nettoyage conversationnel"}],
+            "balanced": [{"type": "balanced_restruct", "description": "Restructuration par blocs + compression"}],
+            "aggressive": [{"type": "spc_aggressive", "description": "Compression télégraphique sur base SPC protégée"}],
+            "max": [{"type": "spc_max", "description": "SPC MAX: all rule-based + KOMPRESS neural"}],
+            "industrial": [{"type": "spc_industrial", "description": "SPC INDUSTRIAL: production-grade KOMPRESS + full rules"}],
+        }
+        for key, changes in changes_map.items():
+            entry = result.get(key)
+            if not entry:
+                continue
+            opt_tokens = count_tokens(entry.get("prompt", ""), req.target_model)
+            savings = round(((original_tokens - opt_tokens) / max(original_tokens, 1)) * 100, 1)
+            entry["original_tokens"] = original_tokens
+            entry["optimized_tokens"] = opt_tokens
+            entry["savings_percent"] = savings
+            entry["savings_tokens"] = original_tokens - opt_tokens
+            entry["original_cost"] = original_cost
+            entry["optimized_cost"] = calculate_cost(
+                req.target_model, opt_tokens, max(int(opt_tokens * 0.3), 1)
+            ) if target_info else 0
+            entry["changes_made"] = changes
+            versions.append(entry)
+
+            try:
+                save_optimization(
+                    original=req.prompt,
+                    optimized=entry.get("prompt", ""),
+                    version=entry.get("label", "Unknown"),
+                    original_tokens=original_tokens,
+                    optimized_tokens=opt_tokens,
+                    savings_percent=savings,
+                    target_model=req.target_model,
+                    optimizer_model=optimizer_model or req.target_model,
+                    explanation="\n".join(c.get("description", str(c)) for c in changes),
+                )
+            except Exception as exc:
+                logger.warning("Failed to save history: %s", exc)
+
+        _tasks[session_id].update({
+            "progress": 100,
+            "phase": "complete",
+            "elapsed": _time.time() - _tasks[session_id]["start_time"],
+            "result": {
+                "original_tokens": original_tokens,
+                "original_cost": original_cost,
+                "versions": versions,
+                "source": "api" if (api_key and provider) else "fallback",
+                "category": _meta.get("category", category or "general"),
+            },
+        })
+    except Exception as exc:
+        logger.error("Optimization task failed: %s", exc)
+        _tasks[session_id].update({
+            "progress": -1, "phase": "error", "error": str(exc),
+        })
+
+
+@app.post("/api/optimize")
+async def optimize(req: OptimizeRequest):
+    """Start optimization in background and return session ID."""
     if not req.prompt or not req.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
 
-    original_tokens = count_tokens(req.prompt, req.target_model)
-    target_info = get_model_info(req.target_model)
-    original_cost = 0.0
-    if target_info:
-        original_cost = calculate_cost(req.target_model, original_tokens, original_tokens)
+    session_id = _uuid.uuid4().hex[:8]
+    _tasks[session_id] = {
+        "progress": 0, "phase": "queued", "start_time": _time.time(), "elapsed": 0,
+    }
+    _threading.Thread(
+        target=_run_optimize_task, args=(session_id, req), daemon=True
+    ).start()
+    return {"session_id": session_id}
 
-    api_key = None
-    provider = req.optimizer_provider
-    optimizer_model = req.optimizer_model
-    category = req.category
 
-    if provider and optimizer_model:
-        key_data = get_api_key(provider)
-        if key_data:
-            try:
-                api_key = decrypt_api_key(key_data["key_value"])
-            except Exception:
-                api_key = key_data["key_value"]
+@app.get("/api/progress/{session_id}")
+def get_progress(session_id: str):
+    """Poll progress of an optimization task."""
+    task = _tasks.get(session_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
 
-    result = optimize_prompt(req.prompt, optimizer_model, provider, api_key, category=category)
 
-    if isinstance(result, dict) and "error" in result:
-        versions = result.get("fallback", [])
-        source = "fallback"
-    elif isinstance(result, dict) and "fallback" in result:
-        versions = result["fallback"]
-        source = "fallback"
-    elif api_key and provider:
-        versions = result
-        source = "api"
-    else:
-        versions = result
-        source = "fallback"
-
-    for v in versions:
-        opt_tokens = count_tokens(v.get("prompt", ""), req.target_model)
-        v["original_tokens"] = original_tokens
-        v["optimized_tokens"] = opt_tokens
-        v["savings_percent"] = round(
-            ((original_tokens - opt_tokens) / max(original_tokens, 1)) * 100, 1
-        )
-        v["savings_tokens"] = original_tokens - opt_tokens
-        if target_info:
-            v["original_cost"] = original_cost
-            v["optimized_cost"] = calculate_cost(
-                req.target_model, opt_tokens, opt_tokens
-            )
-        else:
-            v["original_cost"] = 0
-            v["optimized_cost"] = 0
-
-        try:
-            save_optimization(
-                original=req.prompt,
-                optimized=v.get("prompt", ""),
-                version=v.get("label", "Unknown"),
-                original_tokens=original_tokens,
-                optimized_tokens=opt_tokens,
-                savings_percent=v.get("savings_percent", 0),
-                target_model=req.target_model,
-                optimizer_model=optimizer_model or req.target_model,
-                explanation="\n".join(v.get("changes_made", [])),
-            )
-        except Exception:
-            pass
-
-    return OptimizeResponse(
-        original_tokens=original_tokens,
-        original_cost=original_cost,
-        versions=versions,
-        source=source,
-    )
+# ── Legacy /api/optimize-sync (kept for backward compat) ──────
 
 
 @app.get("/api/models")
@@ -303,7 +362,7 @@ def restart_api():
         code = (
             "import subprocess,time,os\n"
             f"time.sleep(0.5)\n"
-            f"subprocess.run(['taskkill','/F','/PID','{pid}'],shell=True)\n"
+            f"subprocess.run(['taskkill','/F','/PID','{pid}'])\n"
             "time.sleep(0.5)\n"
             f"subprocess.Popen([r'{py}','-m','uvicorn','backend.app:app','--host','127.0.0.1','--port','8765'],cwd=r'{base}')\n"
         )
@@ -312,6 +371,8 @@ def restart_api():
     _threading.Thread(target=_restart, daemon=True).start()
     return {"status": "restarting"}
 
+
+app.include_router(document_router)
 
 _frontend_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
 app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
