@@ -6,7 +6,9 @@ TokenForge est une application desktop qui analyse, optimise et compresse vos pr
 
 ## Fonctionnalités
 
-- **Pipeline SPC complet** : 6 profils de compression (Safe, Light, Balanced, Aggressive, Max, Industrial)
+- **Pipeline SPC complet** : 18 phases, 6 profils (Safe, Light, Balanced, Aggressive, Max, Industrial)
+- **Semantic chunk filter** (Stage 3) : chunk → MiniLM embed → cosinus score → drop low-relevance
+- **Quality validation** (Stage 2) : cosine similarity original vs compressé, contenu critique, spans protégés
 - **2 moteurs neuronaux embarqués** : KOMPRESS (ModernBert, 8192 tokens) + LLMLingua-2 (XLM-RoBERTa/BERT) — fallback automatique
 - **Compression intelligente** : contenu protégé (code, LaTeX, JSON, URLs), détection de langue (FR/EN), 24 formats de documents
 - **Import de documents** : PDF, DOCX, PPTX, XLSX, CSV, JSON, XML, HTML, Markdown, images (OCR), code source et plus
@@ -22,19 +24,21 @@ TokenForge est une application desktop qui analyse, optimise et compresse vos pr
 ## Modes de compression
 
 | Mode | Moteur | Réduction | Description |
-|---|---|---|---|
+|---|---|---|---|---|
 | Safe | rule-based | 10-20% | Protection + exact dedup + structural cleanup |
 | Light | rule-based | 15-25% | + Suppression bruit conversationnel |
 | Balanced | rule-based | 25-40% | + Restructuration logique, near-dedup MinHash |
-| Aggressive | KOMPRESS ⤑ LLMLingua-2 | 40-60% | + Compression neuronale, temporel, exemples |
-| Max | KOMPRESS ⤑ LLMLingua-2 | 45-75% | + Toutes les règles + KOMPRESS neural |
-| Industrial | KOMPRESS ⤑ LLMLingua-2 | 45-75% | Production-grade : KOMPRESS + règles complètes |
+| Aggressive | KOMPRESS ⤑ LLMLingua-2 | 40-60% | + Semantic chunk filter + KOMPRESS neural + règles |
+| Max | KOMPRESS ⤑ LLMLingua-2 | 45-65% | + KOMPRESS neural + semantic chunk + quality validation |
+| Industrial | KOMPRESS ⤑ LLMLingua-2 | 50-75% | Production-grade : KOMPRESS + semantic chunk + quality + rules |
 
 ## Pipeline SPC (18 phases)
 
 ```
-Sanctuary → Lang detect → Parsing → Cancellation → Purge → Dedup → Fragment → Classify
-→ IR build → IR scoring → Compression (6 profils) → Validate → Reconstruct → Reinject
+Ingestion → Protection → Semantic Chunk Filter → Parse → IR → Constraint
+→ Negation → Exact Dedup → Near Dedup → Discourse → Structural → Lexical
+→ Logical → Temporal → Example Reduction → Neural (KOMPRESS ⤑ LLMLingua-2)
+→ Reconstruction → Validation → Quality → Metrics
 ```
 
 ## Prérequis
@@ -242,7 +246,7 @@ npm run build:win
 
 ## Techniques de compression
 
-Voir [TECHNIQUES_COMPRESSION.md](./TECHNIQUES_COMPRESSION.md) et [TECHNIQUES_TEMPLATES.md](./TECHNIQUES_TEMPLATES.md) pour la documentation détaillée des 6 profils et des phases SPC.
+Voir [TECHNIQUES_COMPRESSION.md](./TECHNIQUES_COMPRESSION.md), [TECHNIQUES_TEMPLATES.md](./TECHNIQUES_TEMPLATES.md) et [SPECS_LLM_GRAY_ZONE.md](./SPECS_LLM_GRAY_ZONE.md) pour les specs LLM local (Phi-3-mini / Qwen2.5-1.5B) sur les 5 zones grises.
 
 ## Licence
 
