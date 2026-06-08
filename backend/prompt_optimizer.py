@@ -10,7 +10,11 @@ OPTIMIZER_SYSTEM_PROMPT = """You are PromptCompress, an expert prompt optimizati
 
 _EN_SENTENCE_SPLIT_ABBREVS = ["Mr.", "Dr.", "M.", "Mme.", "i.e.", "e.g.", "cf."]
 
-CATEGORIES = ["general", "literary", "scientific", "commercial", "philosophical", "instructional"]
+CATEGORIES = [
+    "general", "literary", "scientific", "commercial",
+    "philosophical", "instructional",
+    "legal", "financial", "technical", "administrative", "academic",
+]
 
 # Category-specific tool words: which words to KEEP (excluded from stop list) vs general
 CATEGORY_KEEP_WORDS_FR = {
@@ -19,12 +23,20 @@ CATEGORY_KEEP_WORDS_FR = {
                  "mais", "donc", "et", "car", "ni", "ou", "parce", "comme",
                  "quand", "lorsque", "si", "puis", "alors", "pourtant", "cependant"},
     "philosophical": {"donc", "car", "mais", "or", "ni", "parce", "puisque",
-                      "alors", "donc", "en effet", "cependant", "néanmoins",
-                      "toutefois", "pourtant", "si", "donc", "ainsi"},
+                      "alors", "en effet", "cependant", "néanmoins",
+                      "toutefois", "pourtant", "si", "ainsi"},
     "instructional": {"si", "quand", "lorsque", "chaque", "quelque", "plusieurs",
                       "entre", "depuis", "pendant", "avant", "après"},
-    "scientific": set(),  # keep general defaults
+    "legal": {"ledit", "ladite", "lesdits", "lesdites", "auxdites", "auxdits",
+              "nonobstant", "conformément", "vertu", "dudit", "dite", "dit",
+              "sauf", "hormis", "notamment", "ou", "ni"},
+    "academic": {"cependant", "néanmoins", "toutefois", "donc", "car", "or",
+                 "notamment", "notons", "soulignons", "observons"},
+    "scientific": set(),
     "commercial": set(),
+    "financial": set(),
+    "technical": set(),
+    "administrative": set(),
 }
 CATEGORY_KEEP_WORDS_EN = {
     "literary": {"i", "you", "he", "she", "we", "they", "my", "your", "his",
@@ -36,48 +48,74 @@ CATEGORY_KEEP_WORDS_EN = {
                       "consequently", "accordingly", "furthermore", "moreover"},
     "instructional": {"if", "when", "then", "each", "every", "some", "any",
                       "between", "during", "after", "before", "while"},
+    "legal": {"shall", "pursuant", "notwithstanding", "whereas", "hereby",
+              "thereof", "therein", "wherein", "herein", "hereinafter",
+              "aforementioned", "aforesaid", "such", "said", "any"},
+    "academic": {"however", "therefore", "thus", "furthermore", "moreover",
+                 "nevertheless", "nonetheless", "consequently", "accordingly"},
     "scientific": set(),
     "commercial": set(),
+    "financial": set(),
+    "technical": set(),
+    "administrative": set(),
 }
 
 # Category-specific balanced compression configs
 CATEGORY_ABBREV_CONFIG = {
     "general": True,
-    "literary": False,  # No abbrevs in literary
+    "literary": False,
     "scientific": True,
     "commercial": True,
-    "philosophical": False,  # No abbrevs in philosophical (keep formal tone)
+    "philosophical": False,
     "instructional": True,
+    "legal": False,
+    "financial": True,
+    "technical": True,
+    "administrative": True,
+    "academic": False,
 }
 
 CATEGORY_CONNECTOR_REMOVE = {
     "general": True,
-    "literary": False,  # Keep connectors for flow
+    "literary": False,
     "scientific": True,
     "commercial": True,
-    "philosophical": False,  # Keep connectors for logic
-    "instructional": False,  # Keep connectors for sequence
+    "philosophical": False,
+    "instructional": False,
+    "legal": False,
+    "financial": True,
+    "technical": True,
+    "administrative": True,
+    "academic": False,
 }
 
 
 class OptiTokenOptimizer:
     def __init__(self):
-        # --- Langue ---
-        self.fr_stop_words = {
-            "bonjour", "merci", "s'il vous plaît", "je", "vous", "nous",
-            "c'est", "j'ai", "très", "vraiment", "pour", "avec", "cette",
-            "cet", "ces", "mon", "ton", "son", "mes", "tes", "ses",
-            "nos", "vos", "leurs", "mais", "donc", "car", "ni", "où",
-            "dans", "sur", "sous", "entre", "pendant", "depuis", "désormais",
-            "aujourd'hui", "bien", "mal", "peu", "beaucoup", "trop",
-            "aussi", "ensuite", "puis", "enfin", "alors", "pourtant",
-            "cependant", "toutefois", "néanmoins", "certes", "plutôt",
-            "surtout", "notamment", "c'est-à-dire", "c'est pourquoi",
-            "faire", "fais", "fait", "fallait", "faut",
-            "veux", "peux", "dois", "sais", "connais",
+        # --- Precompiled patterns (performance + security) ---
+        self._JSON_PAT = re.compile(r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}')
+        self._UNIT_PAT = re.compile(
+            r'\b\d+\s*(?:mg|g|kg|mL|L|°C|°F|V|Hz|km/h|mph|%|px|em|rem|ms|GHz|MHz|GB|MB|TB)\b'
+            r'|\b\d+\s*[cC]\b|\b\d+\s*colonnes\b|\b\d+\s*fois\b'
+        )
+        self._FILLERS_PAT = re.compile(r'\b(basically|literally|actually|really|quite|just|vraiment|très|trop|bref|wesh|tkt)\b', re.I)
+        self._CONNECTOR_REMOVE_FR = re.compile(r"\b(car|donc|ensuite|puis|alors|pourtant|cependant|toutefois|d'ailleurs|en effet)\b", re.I)
+        self._CONNECTOR_REMOVE_EN = re.compile(r'\b(therefore|however|nevertheless|furthermore|moreover|additionally|consequently)\b', re.I)
+        self._SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+')
+        self._MARKDOWN_TABLE_SEP = re.compile(r'\|.*---.*\|')
+        self._ABBREV_EN_PAT = re.compile(
+            r'\b(?:information|management|approximately|background|with|without|'
+            r'introduction|demonstration|organization|technology|documentation|limited)\b', re.I
+        )
+        self._ABBREV_EN_MAP = {
+            "information": "info", "management": "mgmt", "approximately": "~",
+            "background": "bg", "with": "w/", "without": "w/o",
+            "introduction": "intro", "demonstration": "demo",
+            "organization": "org", "technology": "tech",
+            "documentation": "docs", "limited": "ltd",
         }
-        self.en_stop_words = set()
-        # --- Tool words (aggressive stop words) ---
+
+        # --- Stop words ---
         self.tool_words_fr = {
             "le", "la", "les", "un", "une", "des", "de", "du", "est", "sont",
             "était", "étaient", "ai", "as", "avons", "avez", "ont", "être", "été",
@@ -106,8 +144,8 @@ class OptiTokenOptimizer:
         }
         self.tool_words_en = {
             "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-            "has", "have", "had", "do", "does", "did", "will", "would", "shall",
-            "should", "can", "could", "may", "might", "must",
+            "has", "have", "had", "do", "does", "did", "doing", "having",
+            "will", "would", "shall", "should", "can", "could", "may", "might", "must",
             "to", "of", "in", "for", "on", "at", "by", "with", "from", "as",
             "this", "that", "these", "it", "its", "my", "your", "our", "their",
             "me", "him", "her", "us", "them", "i", "you", "we", "he", "she",
@@ -117,12 +155,10 @@ class OptiTokenOptimizer:
             "who", "how", "why", "there", "each", "every", "some", "any", "all",
             "both", "few", "many", "much", "several", "here", "now", "then",
             "still", "already", "yet", "only", "well", "even", "too",
-            "more", "most", "little", "lot", "lots",
+            "more", "most", "little", "lot", "lots", "am",
             "such", "own", "same", "another",
             "everything", "nothing", "something",
             "always", "never", "often", "sometimes",
-            "am", "are", "is", "was", "were", "being", "been",
-            "have", "has", "had", "having", "do", "does", "did", "doing",
             "i'm", "you're", "he's", "she's", "it's", "we're", "they're",
             "i've", "you've", "we've", "they've",
             "i'll", "you'll", "he'll", "she'll", "it'll", "we'll", "they'll",
@@ -133,7 +169,7 @@ class OptiTokenOptimizer:
             "thats", "dont", "cant", "wont", "youre", "its", "theres",
             "whats", "whos", "wheres",
             "please", "thank",
-            "able", "need", "want", "like", "would",
+            "able", "need", "want", "like",
         }
         # --- Cancellation triggers ---
         self.cancellation_triggers_fr = [
@@ -289,15 +325,13 @@ class OptiTokenOptimizer:
         text = re.sub(r"`[^`\n]+`", lambda m: add_to_sanctuary(m, "INLINE_CODE"), text)
         text = re.sub(r"\$\$[\s\S]*?\$\$", lambda m: add_to_sanctuary(m, "LATEX_BLOCK"), text)
         text = re.sub(r"\$[^$\n]+\$", lambda m: add_to_sanctuary(m, "LATEX_INLINE"), text)
-        # Template variables: ${...}, {{...}}, {simple_var}
         text = re.sub(r'\$\{[^}]+\}', lambda m: add_to_sanctuary(m, "TEMPLATE_DOLLAR"), text)
         text = re.sub(r'\{\{[^}]+\}\}', lambda m: add_to_sanctuary(m, "TEMPLATE_DOUBLE"), text)
         text = re.sub(r'\{[a-zA-Z_][a-zA-Z0-9_]*\}', lambda m: add_to_sanctuary(m, "TEMPLATE_SINGLE"), text)
-        json_pat = r'\{(?:[^{}]|\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})*\}'
-        text = re.sub(json_pat, lambda m: add_to_sanctuary(m, "JSON_OBJECT"), text)
+        # Safe bounded JSON: max 4 levels, no catastrophic backtracking
+        text = re.sub(self._JSON_PAT, lambda m: add_to_sanctuary(m, "JSON_OBJECT"), text)
         text = re.sub(r"https?://[^\s]+", lambda m: add_to_sanctuary(m, "URL"), text)
-        unit_pat = r'\b\d+\s*(mg|g|kg|mL|L|°C|°F|V|Hz|km/h|mph|%|px|em|rem|ms|GHz|MHz|GB|MB|TB)\b|\b\d+\s*[cC]\b|\b\d+\s*colonnes\b|\b\d+\s*fois\b'
-        text = re.sub(unit_pat, lambda m: add_to_sanctuary(m, "UNIT"), text)
+        text = re.sub(self._UNIT_PAT, lambda m: add_to_sanctuary(m, "UNIT"), text)
 
         return text, sanctuary
 
@@ -309,7 +343,7 @@ class OptiTokenOptimizer:
     # --- PRE-PROCESSING ---
     def _is_french(self, text: str) -> bool:
         words = set(re.findall(r'\b\w+\b', text.lower()))
-        score = len(words.intersection(self.fr_stop_words))
+        score = len(words.intersection(self.tool_words_fr))
         return score >= 2
 
     def _apply_cancellation_filter(self, sentences: List[str], is_fr: bool) -> List[str]:
@@ -318,10 +352,11 @@ class OptiTokenOptimizer:
         for sentence in sentences:
             matched = False
             for trigger in triggers:
-                if re.search(r'\b' + trigger + r'\b', sentence.lower()):
+                pat = re.compile(r'\b' + re.escape(trigger) + r'\b', re.I)
+                if pat.search(sentence):
                     if cleaned:
                         cleaned.pop()
-                    parts = re.split(r'\b' + trigger + r'\b', sentence, flags=re.I)
+                    parts = pat.split(sentence, maxsplit=1)
                     if parts[0].strip():
                         cleaned.append(parts[0].strip())
                     matched = True
@@ -422,43 +457,51 @@ class OptiTokenOptimizer:
         t = text.lower()
         scores = {c: 0 for c in CATEGORIES}
 
+        def _count(pattern: str, weight: int = 3) -> int:
+            return len(re.findall(pattern, t, re.I)) * weight
+
         # Scientific: tech terms, numbers, units, formulas
-        if re.search(r'\b(algorithm|function|api|json|api|database|server|protocol|syntax|compiler|debug|temperature|voltage|frequency|data|analysis|hypothesis|experiment|study|methodology|calculate|compute|measure)\b', t):
-            scores["scientific"] += 3
-        if re.search(r'\b\d+\.\d+|\b\d+\s*(mg|g|kg|ml|l|°c|°f|v|hz|ghz|mhz|gb|mb|tb|%|px)\b', t, re.I):
-            scores["scientific"] += 2
-        if re.search(r'\b(define|implement|configure|parse|validate|optimize|benchmark)\b', t):
-            scores["scientific"] += 1
+        scores["scientific"] += _count(r'\b(algorithm|function|api|json|database|server|protocol|syntax|compiler|debug|temperature|voltage|frequency|data|analysis|hypothesis|experiment|study|methodology|calculate|compute|measure|calibration|specimen|protocol|laboratory)\b', 3)
+        scores["scientific"] += _count(r'\b\d+\.\d+\b|\b\d+\s*(mg|g|kg|ml|l|°[cCfF]|v|hz|ghz|mhz|gb|mb|tb|%|px)\b', 2)
+        scores["scientific"] += _count(r'\b(define|implement|configure|parse|validate|optimize|benchmark)\b', 1)
 
         # Literary: narrative, dialog, metaphor, style words
-        if re.search(r'\b(metaphor|narrative|story|poem|chapter|character|plot|scene|dialogue|atmosphere|mood|tone|voice|style|imagine|once upon|fairy tale|novel|essay)\b', t):
-            scores["literary"] += 3
-        if re.search(r'\b(feel|felt|emotion|passion|dream|wonder|beautiful|sad|joy|hope|remember|forget)\b', t):
-            scores["literary"] += 2
+        scores["literary"] += _count(r'\b(metaphor|narrative|story|poem|chapter|character|plot|scene|dialogue|atmosphere|mood|tone|voice|style|imagine|fairy\s+tale|novel|essay|protagonist|verse|prose|fiction)\b', 3)
+        scores["literary"] += _count(r'\b(feel|felt|emotion|passion|dream|wonder|beautiful|sad|joy|hope|remember|forget)\b', 2)
 
         # Commercial: marketing, sales, business language
-        if re.search(r'\b(buy|sell|purchase|discount|offer|promo|save|price|cost|revenue|profit|market|campaign|brand|customer|client|audience|convert|lead|sales|roi|cta|landing|funnel)\b', t):
-            scores["commercial"] += 3
-        if re.search(r'\b(unique|exclusive|limited|guaranteed|proven|results|growth|scalable|solution|value)\b', t):
-            scores["commercial"] += 2
+        scores["commercial"] += _count(r'\b(buy|sell|purchase|discount|offer|promo|save|price|cost|revenue|profit|market|campaign|brand|customer|client|audience|convert|lead|sales|roi|cta|landing|funnel|promotion|loyalty|acquisition)\b', 3)
+        scores["commercial"] += _count(r'\b(unique|exclusive|limited|guaranteed|proven|results|growth|scalable|solution|value)\b', 2)
 
         # Philosophical: abstract reasoning
-        if re.search(r'\b(therefore|hence|thus|since|because|if.*then|premise|conclusion|argument|logic|reason|essence|existence|cause|effect|nature|reality|truth|knowledge|consciousness|paradox|dialectic|categorical|imperative)\b', t):
-            scores["philosophical"] += 3
-        if re.search(r'\b(think|believe|consider|reflect|contemplate|analyze|examine|question|ponder|conceive)\b', t):
-            scores["philosophical"] += 2
+        scores["philosophical"] += _count(r'\b(therefore|hence|thus|since|because|premise|conclusion|argument|logic|reason|essence|existence|cause|effect|nature|reality|truth|knowledge|consciousness|paradox|dialectic|categorical|imperative)\b', 3)
+        scores["philosophical"] += _count(r'\b(think|believe|consider|reflect|contemplate|examine|question|ponder|conceive)\b', 2)
 
-        # Instructional: steps, procedures, instructions
-        if re.search(r'\b(step|first|second|then|next|finally|procedure|instruction|guide|tutorial|how to|follow|repeat|sequence|phase|stage)\b', t):
-            scores["instructional"] += 3
-        if re.search(r'\b(click|select|choose|enter|type|press|open|close|install|setup|configure|create new|navigate|scroll|drag|drop)\b', t):
-            scores["instructional"] += 2
+        # Instructional: how-to, steps, tutorials, guides
+        scores["instructional"] += _count(r'\b(step|steps|how\s+to|tutorial|guide|instructions|first|second|next|then|finally|begin|start|end|repeat|while|procedure|follow)\b', 3)
+        scores["instructional"] += _count(r'\b(method|approach|technique|process|workflow)\b', 2)
 
-        # Short text heuristic: if too short for reliable detection, default to general
-        if len(t.split()) < 10:
-            return "general"
+        # Legal: contract, clause, liability, legal terms
+        scores["legal"] += _count(r'\b(contract|agreement|clause|party|obligation|liability|indemnify|termination|breach|warrant|governing\s*law|jurisdiction|arbitration|confidentiality|hereby|notwithstanding|pursuant|thereof|therein|wherein)\b', 3)
+        scores["legal"] += _count(r'\b(shall|indemnification|dispute|enforceable|covenant|representation|warranty)\b', 2)
 
-        best = max(scores, key=lambda k: scores[k])
+        # Financial: revenue, profit, asset, fiscal terms
+        scores["financial"] += _count(r'\b(revenue|profit|loss|asset|liability|equity|depreciation|amortization|dividend|shareholder|fiscal|audit|budget|forecast|margin|earnings|ebitda)\b', 3)
+        scores["financial"] += _count(r'\b(investment|capital|expense|tax|valuation|liquidity|solvency|interest)\b', 2)
+
+        # Technical: specification, architecture, protocol, deployment
+        scores["technical"] += _count(r'\b(specification|requirement|architecture|interface|protocol|implementation|deployment|configuration|parameter|threshold|throughput|latency|bandwidth|redundancy|scalability|deploy)\b', 3)
+        scores["technical"] += _count(r'\b(endpoint|middleware|cache|proxy|pipeline|orchestration|container|microservice)\b', 2)
+
+        # Administrative: policy, procedure, regulation, compliance
+        scores["administrative"] += _count(r'\b(policy|procedure|regulation|compliance|guideline|directive|memorandum|circular|submission|approval|authorization|certification|standard)\b', 3)
+        scores["administrative"] += _count(r'\b(governance|oversight|mandate|statutory|regulatory|enforcement|reporting)\b', 2)
+
+        # Academic: paper, publication, citation, thesis
+        scores["academic"] += _count(r'\b(paper|publication|citations?|references?|bibliography|abstract|introduction|thesis|dissertation|peer[-\s]review|journals?|conference)\b', 3)
+        scores["academic"] += _count(r'\b(academic|scholar|curriculum|pedagogy|syllabus|lecture|seminar|methodology)\b', 2)
+
+        best = max(scores, key=scores.get)
         return best if scores[best] >= 2 else "general"
 
     def _compress_sentence_balanced(self, text: str, is_fr: bool, category: str = "general") -> str:
@@ -482,31 +525,22 @@ class OptiTokenOptimizer:
 
         # Connectors: category-aware
         if CATEGORY_CONNECTOR_REMOVE.get(category, True):
-            if is_fr:
-                text = re.sub(r"\b(car|donc|ensuite|puis|alors|pourtant|cependant|toutefois|d'ailleurs|en effet)\b", '', text, flags=re.I)
-            else:
-                text = re.sub(r'\b(therefore|however|nevertheless|furthermore|moreover|additionally|consequently)\b', '', text, flags=re.I)
+            text = self._CONNECTOR_REMOVE_FR.sub('', text) if is_fr else self._CONNECTOR_REMOVE_EN.sub('', text)
 
-        # Abbreviations: category-aware
+        # Abbreviations: category-aware (single alternation pass)
         if CATEGORY_ABBREV_CONFIG.get(category, True):
-            abbrevs_en = {
-                "information": "info", "management": "mgmt", "approximately": "~",
-                "background": "bg", "with": "w/", "without": "w/o",
-                "introduction": "intro", "demonstration": "demo",
-                "organization": "org", "technology": "tech",
-                "documentation": "docs", "limited": "ltd",
-            }
             if is_fr:
                 text = re.sub(r'\bet\b', '&', text, flags=re.I)
                 text = re.sub(r'\bpar exemple\b', 'ex', text, flags=re.I)
             else:
                 text = re.sub(r'\band\b', '&', text, flags=re.I)
-                for k, v in abbrevs_en.items():
-                    text = re.sub(r'\b' + k + r'\b', v, text, flags=re.I)
+                text = self._ABBREV_EN_PAT.sub(lambda m: self._ABBREV_EN_MAP.get(m.group(0).lower(), m.group(0)), text)
 
         return re.sub(r'\s+', ' ', text).strip()
 
     def _compress_sentence_aggressive(self, text: str, is_fr: bool, category: str = "general") -> str:
+        negation_keep = {"ne","pas","ni","rien","jamais","personne","aucun","aucune",
+                         "not","no","nor","never","neither","none","nobody","nothing","nowhere"}
         words = text.split()
         compressed = []
         # Category-specific tool words: remove keep-words from stop list
@@ -519,6 +553,10 @@ class OptiTokenOptimizer:
                 compressed.append(w)
                 continue
             if clean_w in keep_fr or clean_w in keep_en:
+                compressed.append(w)
+                continue
+            # Preserve negation words to avoid flipping meaning
+            if clean_w in negation_keep:
                 compressed.append(w)
                 continue
             stop = self.tool_words_fr if is_fr else self.tool_words_en
@@ -548,22 +586,46 @@ class OptiTokenOptimizer:
 
         return result
 
+    def _original_aggressive(self, classified: dict, is_fr: bool, category: str) -> str:
+        lignes = []
+        if classified['role']:
+            lignes.append(f"Role: {self._compress_sentence_aggressive(' '.join(classified['role']), is_fr, category)}")
+        if classified['task']:
+            lignes.append(f"Task: {self._compress_sentence_aggressive(' '.join(classified['task']), is_fr, category)}")
+        specs = classified['constraint'] + classified['output_format'] + classified['structure_item']
+        if specs:
+            lignes.append("Specs:")
+            for spec in specs:
+                cs = self._compress_sentence_aggressive(spec, is_fr, category)
+                if cs.strip():
+                    lignes.append(f"  * {cs}")
+        return "\n".join(lignes)
+
     # --- MAIN OPTIMIZE ---
-    def optimize(self, raw_prompt: str, category: str = None) -> Dict[str, dict]:
+    def optimize(self, raw_prompt: str, category: str = None, spc_enabled: bool = True,
+                 progress_callback=None) -> Dict[str, dict]:
         original = raw_prompt.strip()
+        if progress_callback:
+            progress_callback("sanctuary", 3)
 
         # Phase 1: Sanctuary
         protected, sanctuary = self._sanctuary_extract(original)
+        if progress_callback:
+            progress_callback("language", 8)
 
         # Phase 2: Langue & Nettoyage
         is_fr = self._is_french(protected)
         processed = self._purge_meta_discourse(protected, is_fr)
+        if progress_callback:
+            progress_callback("parsing", 15)
 
         # Phase 3: Split, refine, annulation, dédup
         raw_sentences = self._split_sentences(processed)
         refined = self._refine_sentences(raw_sentences, is_fr)
         after_cancel = self._apply_cancellation_filter(refined, is_fr)
         final = self._anti_redundancy_filter(after_cancel)
+        if progress_callback:
+            progress_callback("classification", 22)
 
         # Phase 4: Classification
         classified = {k: [] for k in ('role', 'task', 'output_format', 'constraint', 'structure_item', 'context', 'greeting', 'closing', 'uncertain')}
@@ -571,10 +633,14 @@ class OptiTokenOptimizer:
             label = self._classify_sentence(s, is_fr)
             if label in classified:
                 classified[label].append(s)
+        if progress_callback:
+            progress_callback("category", 27)
 
         # Phase 5: Catégorie (auto-detect if not provided)
         if category is None:
             category = self._detect_category(original, is_fr)
+        if progress_callback:
+            progress_callback("light", 35)
 
         # --- LIGHT (original order, exclude greeting/closing/uncertain per spec) ---
         skip_labels = {'greeting', 'closing', 'uncertain'}
@@ -586,6 +652,8 @@ class OptiTokenOptimizer:
             light_sentences.append(self._clean_light_text(s, is_fr))
         light_prompt = " ".join(light_sentences)
         light_prompt = self._sanctuary_reinject(light_prompt, sanctuary)
+        if progress_callback:
+            progress_callback("balanced", 45)
 
         # --- BALANCED ---
         def _nonempty(ls):
@@ -607,29 +675,74 @@ class OptiTokenOptimizer:
                     continue
                 inline = self._compress_sentence_balanced(' '.join(raw), is_fr, category)
                 blocks.append((f"## {header}\n{inline}", inline))
-        # Choose shorter: sections or inline; fallback to light if still longer
         sectioned = "\n\n".join(b for b, _ in blocks)
         inlined = " | ".join(i for _, i in blocks)
         balanced_prompt = sectioned if len(sectioned) <= len(inlined) else inlined
         if len(balanced_prompt) > len(light_prompt) and inlined != light_prompt:
             balanced_prompt = light_prompt
         balanced_prompt = self._sanctuary_reinject(balanced_prompt, sanctuary)
+        if progress_callback:
+            progress_callback("spc_base", 55)
 
-        # --- AGGRESSIVE ---
-        lines = []
-        if classified['role']:
-            lines.append(f"Role: {self._compress_sentence_aggressive(' '.join(classified['role']), is_fr, category)}")
-        if classified['task']:
-            lines.append(f"Task: {self._compress_sentence_aggressive(' '.join(classified['task']), is_fr, category)}")
-        specs = classified['constraint'] + classified['output_format'] + classified['structure_item']
-        if specs:
-            lines.append("Specs:")
-            for spec in specs:
-                cs = self._compress_sentence_aggressive(spec, is_fr, category)
-                if cs.strip():
-                    lines.append(f"  * {cs}")
-        aggressive_prompt = "\n".join(lines)
+        # --- SPC BASE (protection sémantique post-syntaxique) ---
+        spc_base = ""
+        if spc_enabled:
+            try:
+                from .spc.pipeline import SPC as SemanticCompiler
+                from .spc.profiles import SAFE as SPC_SAFE
+                clean_parts = []
+                for key in ('role', 'task', 'context', 'constraint', 'output_format'):
+                    items = classified.get(key, [])
+                    if items:
+                        clean_parts.append(" ".join(items))
+                clean_text = " ".join(clean_parts) if clean_parts else " ".join(final)
+                if len(clean_text.strip()) > 50:
+                    sv = SemanticCompiler(profile=SPC_SAFE)
+                    sr = sv.compile(clean_text)
+                    spc_base = sr.compressed
+            except Exception as exc:
+                spc_base = ""
+                logging.warning("SPC layer failed: %s", exc)
+        spc_base = self._sanctuary_reinject(spc_base, sanctuary) if spc_base else ""
+
+        # --- POST-SPC: Balanced enrichi par SPC (si dispo) ---
+        if spc_base:
+            balanced_prompt = spc_base
+
+        # --- AGGRESSIVE : compression agressive sur base SPC (sans re-classification) ---
+        if spc_base:
+            agg_sentences = self._split_sentences(spc_base) if len(spc_base) > 0 else final
+            compressed_sents = [self._compress_sentence_aggressive(s, is_fr, category) for s in agg_sentences if s.strip()]
+            aggressive_prompt = "\n".join(compressed_sents) if compressed_sents else self._compress_sentence_aggressive(spc_base, is_fr, category)
+        else:
+            aggressive_prompt = self._original_aggressive(classified, is_fr, category)
         aggressive_prompt = self._sanctuary_reinject(aggressive_prompt, sanctuary)
+        if progress_callback:
+            progress_callback("max_industrial", 80)
+
+        # --- MAX / INDUSTRIAL : compression SPC native (KOMPRESS neural + rule-based) ---
+        max_prompt = ""
+        industrial_prompt = ""
+        if spc_enabled:
+            try:
+                from .spc.pipeline import SPC as SPCCompiler
+                from .spc.profiles import MAX as SPC_MAX, INDUSTRIAL as SPC_INDUSTRIAL
+
+                spc_raw = spc_base or " ".join(final)
+                if len(spc_raw.strip()) > 50:
+                    cmax = SPCCompiler(profile=SPC_MAX)
+                    rmax = cmax.compile(spc_raw)
+                    max_prompt = rmax.compressed
+                    cind = SPCCompiler(profile=SPC_INDUSTRIAL)
+                    rind = cind.compile(spc_raw)
+                    industrial_prompt = rind.compressed
+            except Exception as exc:
+                logging.warning("SPC max/industrial failed: %s", exc)
+        max_prompt = self._sanctuary_reinject(max_prompt, sanctuary) if max_prompt else ""
+        industrial_prompt = self._sanctuary_reinject(industrial_prompt, sanctuary) if industrial_prompt else ""
+
+        if progress_callback:
+            progress_callback("saving", 95)
 
         return {
             "light": {
@@ -644,47 +757,68 @@ class OptiTokenOptimizer:
             },
             "aggressive": {
                 "label": "Agressive",
-                "description": "Style télégraphique ultra-dense, suppression complète des mots-outils non structurels.",
+                "description": "Style télégraphique ultra-dense sur base SPC — préserve contraintes et négations.",
                 "prompt": aggressive_prompt,
+            },
+            "max": {
+                "label": "Max",
+                "description": "SPC profile MAX: all rule-based + KOMPRESS neural token compression.",
+                "prompt": max_prompt or aggressive_prompt,
+            },
+            "industrial": {
+                "label": "Industrial",
+                "description": "SPC profile INDUSTRIAL: production-grade KOMPRESS neural + full rule-based compression.",
+                "prompt": industrial_prompt or aggressive_prompt,
+            },
+            "_meta": {
+                "category": category,
             },
         }
 
 
 # --- WRAPPER API COMPATIBLE AVEC app.py ---
-def optimize_locally(prompt: str, category: str = None) -> list:
+def optimize_locally(prompt: str, category: str = None, spc_enabled: bool = True) -> dict:
     opt = OptiTokenOptimizer()
-    result = opt.optimize(prompt, category=category)
+    result = opt.optimize(prompt, category=category, spc_enabled=spc_enabled)
+    _meta = result.pop("_meta", {})
     changes_light = [{"type": "light_clean", "description": "Nettoyage conversationnel"}]
     changes_balanced = [{"type": "balanced_restruct", "description": "Restructuration par blocs + compression"}]
-    changes_aggressive = [{"type": "aggressive_telegraphic", "description": "Compression télégraphique ultra-dense"}]
-    return [
-        {**result["light"], "changes_made": changes_light},
-        {**result["balanced"], "changes_made": changes_balanced},
-        {**result["aggressive"], "changes_made": changes_aggressive},
-    ]
+    changes_aggressive = [{"type": "spc_aggressive", "description": "Compression télégraphique sur base SPC protégée"}]
+    changes_max = [{"type": "spc_max", "description": "SPC MAX: all rule-based + KOMPRESS neural"}]
+    changes_industrial = [{"type": "spc_industrial", "description": "SPC INDUSTRIAL: production-grade KOMPRESS + full rules"}]
+    return {
+        "versions": [
+            {**result["light"], "changes_made": changes_light},
+            {**result["balanced"], "changes_made": changes_balanced},
+            {**result["aggressive"], "changes_made": changes_aggressive},
+            {**result["max"], "changes_made": changes_max},
+            {**result["industrial"], "changes_made": changes_industrial},
+        ],
+        "category": _meta.get("category", category or "general"),
+    }
 
 
-def optimize_prompt(prompt: str, optimizer_model: str = None, provider: str = None, api_key: str = None, category: str = None) -> list:
+def optimize_prompt(prompt: str, optimizer_model: str = None, provider: str = None, api_key: str = None, category: str = None) -> dict:
     if api_key and provider == "openai":
         try:
-            return _optimize_with_openai(prompt, optimizer_model, api_key)
+            result = _optimize_with_openai(prompt, optimizer_model, api_key)
+            return {"versions": result, "category": category or "general"}
         except Exception as e:
-            result = optimize_locally(prompt, category=category)
-            return result if isinstance(result, list) else [{"label": "Light", "prompt": prompt, "changes_made": [], "description": str(e)}]
+            return optimize_locally(prompt, category=category)
 
     if api_key and provider == "anthropic":
         try:
-            return _optimize_with_anthropic(prompt, optimizer_model, api_key)
+            result = _optimize_with_anthropic(prompt, optimizer_model, api_key)
+            return {"versions": result, "category": category or "general"}
         except Exception as e:
-            result = optimize_locally(prompt, category=category)
-            return result if isinstance(result, list) else [{"label": "Light", "prompt": prompt, "changes_made": [], "description": str(e)}]
+            return optimize_locally(prompt, category=category)
 
     if api_key and provider == "google":
         try:
-            return _optimize_with_google(prompt, optimizer_model, api_key)
+            result = _optimize_with_google(prompt, optimizer_model, api_key)
+            return {"versions": result, "category": category or "general"}
         except Exception as e:
-            result = optimize_locally(prompt, category=category)
-            return result if isinstance(result, list) else [{"label": "Light", "prompt": prompt, "changes_made": [], "description": str(e)}]
+            return optimize_locally(prompt, category=category)
 
     return optimize_locally(prompt, category=category)
 
