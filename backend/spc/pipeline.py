@@ -93,8 +93,8 @@ class SPC:
 
                 # ── Phase 3: Semantic chunk filter ──────────────────
                 if "semantic_chunk" in phases and self.profile.name in ("aggressive", "max", "industrial"):
-                    _thresholds = {"aggressive": 0.25, "max": 0.20, "industrial": 0.15}
-                    _thresh = _thresholds.get(self.profile.name, 0.25)
+                    _thresholds = {"aggressive": 0.20, "max": 0.25, "industrial": 0.30}
+                    _thresh = _thresholds.get(self.profile.name, 0.20)
                     current, chunk_meta = compress_with_semantic_chunking(
                         current,
                         threshold=_thresh,
@@ -160,7 +160,7 @@ class SPC:
 
                 # ── Phase 14: LLMLingua neural compression (auto-detect engine) ──
                 if "llmlingua2" in phases:
-                    _rates = {"aggressive": 0.55, "max": 0.45, "industrial": 0.40}
+                    _rates = {"balanced": 0.65, "aggressive": 0.55, "max": 0.45, "industrial": 0.35}
                     _llm_rate = _rates.get(self.profile.name, 0.5)
                     _fmt = self._intermediate.get("detected_format", "txt")
                     _current, _labels, _type = auto_compress(
