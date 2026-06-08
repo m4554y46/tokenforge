@@ -15,6 +15,19 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict
 from backend.token_counter import count_tokens
 from backend.prompt_optimizer import optimize_prompt
+
+# Lazy singleton for local LLM (Gray Zone)
+_llm_instance = None
+_llm_lock = _threading.Lock()
+
+def _get_llm():
+    global _llm_instance
+    if _llm_instance is None:
+        with _llm_lock:
+            if _llm_instance is None:
+                from backend.spc.llama_cpp import LlamaCpp
+                _llm_instance = LlamaCpp()
+    return _llm_instance
 from backend.models import MODELS, OPTIMIZER_MODELS, calculate_cost, get_model_info
 from backend.database import (
     init_db,
@@ -60,6 +73,20 @@ class OptimizeRequest(BaseModel):
     optimizer_provider: Optional[str] = None
     optimizer_model: Optional[str] = None
     category: Optional[str] = None
+    refine_with_llm: bool = False
+
+
+class LLMRefineRequest(BaseModel):
+    text: str
+    original: str = ""
+    zone: str = "causal_validation"
+    user_id: str = ""
+
+
+class LLMStatusResponse(BaseModel):
+    available: bool
+    model: Optional[str] = None
+    backend: Optional[str] = None
 
 
 class OptimizeResponse(BaseModel):
@@ -141,9 +168,13 @@ def _run_optimize_task(session_id: str, req: OptimizeRequest):
         # Run optimization with progress callbacks
         from backend.prompt_optimizer import OptiTokenOptimizer
         opt = OptiTokenOptimizer()
+        # Pass the shared LLM instance if available
+        llm = _get_llm()
+        llm_instance = llm if (llm.model_path and os.path.isfile(llm.model_path)) else None
         result = opt.optimize(
             req.prompt, category=category, spc_enabled=True,
-            progress_callback=on_progress,
+            progress_callback=on_progress, refine_with_llm=req.refine_with_llm,
+            _llm_instance=llm_instance,
         )
         _meta = result.pop("_meta", {})
 
@@ -230,6 +261,53 @@ def get_progress(session_id: str):
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+
+# ── LLM Refine routes (Couche 2: Gray Zone) ────────────────────
+
+
+@app.post("/api/llm/refine")
+async def llm_refine(req: LLMRefineRequest):
+    """Refine compressed text through gray zone LLM."""
+    try:
+        from .spc.gray_zone import GrayZoneRouter, GrayZone
+
+        zone_map = {
+            "ambiguity": GrayZone.AMBIGUITY,
+            "fine_protection": GrayZone.FINE_PROTECTION,
+            "causal_validation": GrayZone.CAUSAL_VALIDATION,
+            "register": GrayZone.REGISTER,
+            "reexpansion": GrayZone.REEXPANSION,
+        }
+        zone = zone_map.get(req.zone, GrayZone.CAUSAL_VALIDATION)
+        llm = _get_llm()
+        if not os.path.isfile(llm.model_path or ""):
+            return {"refined": req.text, "zone": req.zone, "llm_available": False}
+        router = GrayZoneRouter(llm=llm)
+        if not router.is_available():
+            return {"refined": req.text, "zone": req.zone, "llm_available": False}
+        refined, meta = router.refine(
+            text=req.text,
+            original=req.original,
+            zone=zone,
+            user_id=req.user_id,
+            force=True,
+        )
+        return {"refined": refined, "zone": req.zone, "meta": meta, "llm_available": True}
+    except Exception as exc:
+        logger.warning("LLM refine failed: %s", exc)
+        return {"refined": req.text, "zone": req.zone, "error": str(exc)}
+
+
+@app.get("/api/llm/status")
+def llm_status():
+    """Check if local LLM is available for gray zone refinement."""
+    try:
+        llm = _get_llm()
+        model_ok = llm.model_path is not None and os.path.isfile(llm.model_path)
+        return {"available": model_ok, "model": llm.model_path}
+    except Exception as exc:
+        return {"available": False, "error": str(exc)}
 
 
 # ── Legacy /api/optimize-sync (kept for backward compat) ──────

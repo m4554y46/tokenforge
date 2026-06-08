@@ -163,7 +163,14 @@ def compress_with_kompress(
         scores = model(input_ids, attention_mask=attention_mask)  # (1, S)
 
     scores_np = scores[0].cpu().numpy().tolist()
-    keep_mask = scores[0] >= threshold  # (S,)
+    score_tensor = scores[0]  # (S,)
+
+    # Dual strategy: absolute threshold + percentile floor
+    # absolute: drop tokens with score < threshold
+    # percentile: always drop bottom 15% to guarantee minimum compression
+    pct_floor = float(torch.quantile(score_tensor, 0.15))
+    effective_threshold = max(threshold, pct_floor)
+    keep_mask = score_tensor >= effective_threshold  # (S,)
 
     kept_ids = input_ids[0][keep_mask]
     compressed = tokenizer.decode(kept_ids, skip_special_tokens=True)

@@ -56,12 +56,12 @@ BALANCED = Profile(
 AGGRESSIVE = Profile(
     name="aggressive",
     phases={
-        "ingestion", "protection", "parsing", "ir_full",
+        "ingestion", "protection", "semantic_chunk", "parsing", "ir_full",
         "constraint", "negation", "exact_dedup", "near_dedup",
         "discourse",
         "structural", "lexical", "logical", "temporal",
         "example_reduction", "llmlingua2",
-        "reconstruction", "validation", "metrics",
+        "reconstruction", "validation", "quality", "metrics",
     },
     description="+ Lexical, example reduction, temporal, full logical + neural (KOMPRESS ⤑ LLMLingua-2 fallback).",
     target_reduction="40-60%",
@@ -70,28 +70,28 @@ AGGRESSIVE = Profile(
 MAX = Profile(
     name="max",
     phases={
-        "ingestion", "protection", "parsing", "ir_full",
+        "ingestion", "protection", "semantic_chunk", "parsing", "ir_full",
         "constraint", "negation", "exact_dedup", "near_dedup",
         "discourse",
         "structural", "lexical", "logical", "temporal",
         "example_reduction", "llmlingua2",
-        "reconstruction", "validation", "metrics",
+        "reconstruction", "validation", "quality", "metrics",
     },
-    description="+ All rule-based + neural token compression (KOMPRESS ⤑ LLMLingua-2 fallback).",
+    description="+ All rule-based + neural token compression (KOMPRESS ⤑ LLMLingua-2 fallback) + semantic chunk filter.",
     target_reduction="45-75%",
 )
 
 INDUSTRIAL = Profile(
     name="industrial",
     phases={
-        "ingestion", "protection", "parsing", "ir_full",
+        "ingestion", "protection", "semantic_chunk", "parsing", "ir_full",
         "constraint", "negation", "exact_dedup", "near_dedup",
         "discourse",
         "structural", "lexical", "logical", "temporal",
         "example_reduction", "llmlingua2",
-        "reconstruction", "validation", "metrics",
+        "reconstruction", "validation", "quality", "metrics",
     },
-    description="Production-grade: all compression + neural (KOMPRESS ⤑ LLMLingua-2 fallback).",
+    description="Production-grade: all compression + neural + semantic chunk filter + quality validation.",
     target_reduction="45-75%",
     min_tokens=50,
 )

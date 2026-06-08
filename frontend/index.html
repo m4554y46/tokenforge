@@ -142,11 +142,19 @@
                 </div>
 
                 <div class="prompt-actions">
-                  <button class="btn btn-primary" id="optimizeBtn" onclick="optimize()" data-tooltip="Lance l'optimisation du prompt. Produit 3 versions : Light, Balanced, Aggressive.">
+                  <button class="btn btn-primary" id="optimizeBtn" onclick="optimize()" data-tooltip="Lance l'optimisation du prompt. Produit 5 versions : Light → Industrial.">
                     &#9889; Optimiser
                   </button>
                   <button class="btn btn-secondary" onclick="saveCurrentPromptAsTemplate()" data-tooltip="Enregistre le prompt actuel comme template réutilisable.">&#128203; Template</button>
                   <button class="btn btn-secondary" onclick="clearPrompt()" data-tooltip="Efface le champ de saisie et réinitialise l'affichage.">&#8634; Reset</button>
+                </div>
+                <div class="llm-toggle-row">
+                  <label class="toggle-label" for="refineLlmToggle">
+                    <input type="checkbox" id="refineLlmToggle">
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-text">Affinage LLM local <span class="badge-llm">LLM</span></span>
+                    <span class="toggle-hint" id="llmStatusHint">(vérification...)</span>
+                  </label>
                 </div>
               </div>
             </div>

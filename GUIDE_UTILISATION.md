@@ -174,7 +174,22 @@ Chaque version affiche :
 5. Cliquez sur **⚡ Optimiser**
 6. Résultat attendu : vous voyez 3 versions avec des économies de ~15-30%
 
-### SCÉNARIO B : Test du simulateur de coûts
+### SCÉNARIO B : Affinage via LLM local (Couche 2 Gray Zone)
+
+**But :** Améliorer la qualité de la compression en utilisant un petit LLM qui tourne sur votre PC.
+
+> **Prérequis :** Avoir téléchargé un modèle `.gguf` (voir section [Installation](#2-installation-pas-à-pas)).
+
+1. Lancez l'application et vérifiez que le statut "✅ LLM disponible" s'affiche en bas de l'écran
+2. Dans les options avancées (flèche déroulante sous le bouton Optimiser), activez le toggle **"Affinage LLM local"**
+3. Sélectionnez un mode Aggressive, Max ou Industrial
+4. Cliquez sur **⚡ Optimiser**
+5. Résultat : les versions Aggressive+ sont affinées par le LLM local, badge **LLM** visible sur la carte
+6. Cela prend 10-30 secondes de plus selon la longueur du prompt
+
+> **Note :** Le LLM local (Phi-3-mini, ~2.5 Go RAM) ne remplace pas le pipeline SPC — il affine les zones grises après compression.
+
+### SCÉNARIO C : Test du simulateur de coûts
 
 **But :** Voir combien coûte un prompt selon le modèle utilisé.
 
@@ -183,7 +198,7 @@ Chaque version affiche :
 3. Cliquez sur **$ Calculer**
 4. Résultat : un tableau comparatif avec tous les modèles et leurs coûts
 
-### SCÉNARIO C : Optimisation via un vrai LLM (avec clé API)
+### SCÉNARIO D : Optimisation via un vrai LLM (avec clé API)
 
 **But :** Utiliser un modèle IA puissant pour optimiser vos prompts. **Résultats bien meilleurs.**
 
@@ -202,7 +217,7 @@ Chaque version affiche :
 8. Cliquez sur **⚡ Optimiser**
 9. Résultat attendu : économies de **40-70%**, modifications beaucoup plus intelligentes
 
-### SCÉNARIO D : Tester l'historique
+### SCÉNARIO E : Tester l'historique
 
 **But :** Voir que toutes vos optimisations sont sauvegardées.
 

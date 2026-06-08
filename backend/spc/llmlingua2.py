@@ -701,6 +701,18 @@ def auto_compress(
     strategy = TYPE_STRATEGY_MAP.get(text_type, CompressionStrategy.SKIP)
     model_key = TYPE_MODEL_MAP.get(text_type)
 
+    # Semantic chunk pre-filter for very long texts (>1024 tokens)
+    if len(text) > 4096 and text_type in (TextType.GENERAL, TextType.MEETING, TextType.MULTILINGUAL):
+        try:
+            from .chunk_semantic import compress_with_semantic_chunking
+            _filtered, _ = compress_with_semantic_chunking(
+                text, threshold=0.20, chunk_size=384
+            )
+            if 0.3 < len(_filtered) / len(text) < 0.95:
+                text = _filtered
+        except Exception:
+            pass
+
     if strategy == CompressionStrategy.SKIP or model_key is None:
         return text, None, text_type
 
@@ -716,9 +728,9 @@ def auto_compress(
                 TextType.MEETING, TextType.GENERAL, TextType.MULTILINGUAL
             )
             if n_tokens > 512 or text_type_for_kompress:
-                threshold = max(0.30, min(0.60, 0.55 - profile_rate + 0.50))
+                threshold = max(0.25, min(0.75, 1.05 - profile_rate))
                 compressed, _ = compress_with_kompress(text, threshold=threshold)
-                if len(compressed) < len(text) * 0.75:
+                if len(compressed) < len(text) * 0.85:
                     return compressed, None, text_type
     except Exception:
         pass
