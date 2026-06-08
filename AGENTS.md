@@ -19,10 +19,10 @@ Desktop app (Electron + Python FastAPI) for optimizing LLM prompts and reducing 
 - `backend/prompt_optimizer.py` — Optimizer wrapper with 5 mode versions + progress + Gray Zone refine
 - `backend/app.py` — FastAPI routes, async optimization, progress polling, **LLM singleton** `_get_llm()`
 - `frontend/index.html`, `renderer.js`, `style.css` — SPA UI (LLM toggle + badge)
-- `main.js` — Electron main process
+- `main.js` — Electron main process (simplified: external backend management)
 - `preload.js` — Electron preload bridge
 - `admin/index.html` — Admin console (login: admin/tokenforge, endpoint `/console/`)
-- `SPECS_LLM_GRAY_ZONE.md` — Specs for local LLM gray zone resolution
+- `forge_proxy_demo.py` — SDK proxy demo (interception OpenAI, compression, quality gate, fallback, stats)
 - `SPECS_LLM_GRAY_ZONE.md` — Specs for local LLM gray zone resolution (5 zones, prompts, architecture)
 
 ## State at Last Session
@@ -41,6 +41,10 @@ Desktop app (Electron + Python FastAPI) for optimizing LLM prompts and reducing 
 - **Historique corrigé** : `"\n".join(list[dict])` → extraction `description`. `loadHistory()` au clic.
 - **Semantic chunk filter** : chunk → embed (MiniLM) → score cosinus → drop low-relevance
 - **Quality validation** : cosine similarity original vs compressed (seuil 0.55-0.60), contenu critique, spans protégés, token ratio
+- **Proxy SDK** : `forge_proxy_demo.py` créé — interception transparente `openai.chat.completions.create()`, compression via pipeline KOMPRESS, quality gate multi-pass (60%→40%→20%→0%), fallback transparent, statistiques session
+  - Testé en simulation : ~35% économie texte bavard, code Python préservé intégralement, Sanctuary actif
+- **Electron simplifié** : `main.js` ne lance plus le backend (gestion externe), icon supprimée, `show: true` par défaut, pas de DevTools en prod
+- **Backend accessible via navigateur** : `http://127.0.0.1:8765/` sert l'IHM complète (Electron non nécessaire)
 
 ## Commands
 ```powershell
@@ -52,6 +56,11 @@ npm run build:win      # build Windows .exe
 # Gray Zone LLM
 curl http://127.0.0.1:8765/api/llm/status                              # check LLM status
 curl -X POST http://127.0.0.1:8765/api/llm/refine -H "Content-Type: application/json" -d '{\"text\":\"...\",\"zone\":\"causal_validation\"}'  # test refine
+
+# Proxy SDK
+python forge_proxy_demo.py                                                    # simulation (sans API key)
+python forge_proxy_demo.py --api-key sk-... --profile balanced                # interception réelle OpenAI
+python forge_proxy_demo.py --help                                              # options complètes
 ```
 
 ## Notes
@@ -61,3 +70,5 @@ curl -X POST http://127.0.0.1:8765/api/llm/refine -H "Content-Type: application/
 - Zero-regression on code/LaTeX/JSON/units/templates via Sanctuary
 - `backend/spc/models/` contient CamemBERT + ModernBERT + KOMPRESS + Phi-3-mini GGUF
 - LLM singleton (`_get_llm()`) lazy-loaded, thread-safe
+- `forge_proxy_demo.py` peut tourner sans clé API (mode simulation) ou avec une vraie clé OpenAI
+- L'interface web est accessible sur `http://127.0.0.1:8765/` — aucun besoin d'Electron
