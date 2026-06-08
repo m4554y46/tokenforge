@@ -5,45 +5,33 @@ Desktop app (Electron + Python FastAPI) for optimizing LLM prompts and reducing 
 - **Backend**: Python FastAPI on `http://127.0.0.1:8765`
 - **Frontend**: Electron SPA (vanilla JS, dark mode)
 - **Stack**: Electron 33, Python 3.x, SQLite, AES-256 key encryption, tiktoken
-- **Repo**: https://github.com/slegendre-dev/tokenforge
+- **Repo**: https://github.com/m4554y46/tokenforge
 
 ## Key Files
-- `backend/prompt_optimizer.py` — All compression logic (6 phases)
-- `backend/app.py` — FastAPI routes
+- `backend/spc/pipeline.py` — SPC pipeline orchestrator (18 phases)
+- `backend/spc/kompress.py` — KOMPRESS neural engine (ModernBert + token head)
+- `backend/spc/llmlingua2.py` — LLMLingua-2 native implementation (fallback engine)
+- `backend/spc/chunk_semantic.py` — Semantic chunk filter (Stage 3, MiniLM embedding)
+- `backend/spc/quality.py` — Quality validation (cosine similarity + integrity checks)
+- `backend/spc/profiles.py` — 6 profiles (Safe → Industrial)
+- `backend/prompt_optimizer.py` — Optimizer wrapper with 5 mode versions + progress
+- `backend/app.py` — FastAPI routes, async optimization, progress polling
 - `frontend/index.html`, `renderer.js`, `style.css` — SPA UI
 - `main.js` — Electron main process
 - `preload.js` — Electron preload bridge
-- `admin/index.html` — Console d'administration (login: admin/tokenforge, endpoint `/console/`)
-- `TECHNIQUES_COMPRESSION.md` — Full documentation of all compression techniques
+- `admin/index.html` — Admin console (login: admin/tokenforge, endpoint `/console/`)
+- `SPECS_LLM_GRAY_ZONE.md` — Specs for local LLM gray zone resolution
 
 ## State at Last Session
-- All 6 phases of compression complete
-- 3 compression modes: Light (-20-55%), Balanced (-3.8% to +13.8% on 50w+), Aggressive (-35-70%)
-- Pipeline: Sanctuary → lang detect → cancellation → purge → dedup → fragment → classify → IR build + scoring → compress → validate → build → reinject
-- Catégories (6) + Documents (24 formats) + Dashboard KPI
-- Audit complet (~50+ issues) réalisé et corrigé en juin 2026
-
-## Audit Corrections Applied (Juin 2026)
-### Backend
-| Fichier | Correctifs |
-|---|---|
-| `utils.py` | Clé AES aléatoire persistée (`~/.tokenforge/.key`), fallback machine, `InvalidToken` explicite |
-| `prompt_optimizer.py` | ReDoS JSON → pattern borné ; tous regex précompilés dans `__init__` ; `re.escape()` sur triggers cancellation ; déduplication `tool_words_en` ; fillers/connectors précompilés |
-| `app.py` | `shell=True` retiré ; silent except → `logging.warning` ; coût ratio output 30% |
-| `document_analyzer.py` | Setext heading dedupliqué ; `_key_sentences` O(n²)→O(n) ; détection registre via regex alternance précompilée |
-| `document_router.py` | Analyzer + extensions set en cache (module-level singletons) ; import `REGISTER_KEYWORDS` déplacé en haut |
-
-### Frontend
-| Fichier | Correctifs |
-|---|---|
-| `index.html` | CSP sans `unsafe-eval` + `object-src: none` + `base-uri: self` ; nav `<div>`→`<button>` ARIA ; duplicate Documents supprimé ; toast `aria-live="polite"` |
-| `renderer.js` | Debounce 400ms `onSimPromptChange` ; empty catches → `console.warn` ; `escapeHtml` sur `v.label` ; MutationObserver mort retiré ; Escape key modaux ; focus automatique inputs modaux |
-| `style.css` | `--border-color`→`--border` ; `.agressive`→`.aggressive` |
-
-## Remaining (Low Priority)
-- Refactor `innerHTML` → DOM API sécurisée (`renderer.js`)
-- Lazy loading des views + pagination historique
-- Vérification CVE des dépendances (`pip-audit`)
+- **Pipeline SPC 18 phases** industrialisé : ingestion → protection → **semantic chunk filter** → parse → IR → constraint → negation → exact dedup → near dedup → discourse → structural → lexical → logical → temporal → example reduction → neural (KOMPRESS ⤑ LLMLingua-2 fallback) → reconstruction → validation → **quality check** → metrics
+- **KOMPRESS natif** : ModernBertModel + token head + span CNN convolutif, 8192 contexte, 2.3× plus rapide que LLMLingua-2
+- **5 modes UI** : Light (rule-based), Balanced (rule-based), Aggressive, Max, Industrial (tous avec neural + semantic chunk + quality)
+- **Async + progression temps réel** : polling 400ms, barre avec %, phase, ETA
+- **Historique corrigé** : dict→str dans save_optimization, chargement au clic
+- **149/149 tests verts**, zéro régression
+- **Projet pushé GitHub** : `https://github.com/m4554y46/tokenforge`
+- **Semantic chunk filter** : chunk → embed (MiniLM) → score cosinus → drop low-relevance
+- **Quality validation** : cosine similarity original vs compressed (seuil 0.55-0.60), critical content preservation, protected span integrity, token ratio
 
 ## Commands
 ```powershell
@@ -58,3 +46,4 @@ npm run build:win      # build Windows .exe
 - Electron needs display (won't work from agent CLI)
 - French + English prompts both supported
 - Zero-regression on code/LaTeX/JSON/units/templates via Sanctuary
+- `backend/spc/models/` contient CamemBERT + ModernBERT pour fine-tuning futur

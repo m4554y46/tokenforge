@@ -22,6 +22,8 @@ from .discourse import detect_discourse_relations, DiscourseSpan
 from .structural import compress_structure, compress_logical, compress_temporal
 from .lexical import compress_lexical
 from .example_reducer import reduce_examples
+from .chunk_semantic import compress_with_semantic_chunking
+from .quality import validate_quality as validate_quality_fn
 from .llmlingua2 import auto_compress, compress_with_llmlingua2, compress_json_block, get_token_labels, TextType
 from .reconstruction import reconstruct
 from .validator import validate_all, ValidationResult
@@ -89,7 +91,18 @@ class SPC:
                     self._intermediate["protected"] = current
                     self._intermediate["protected_count"] = len(self.registry)
 
-                # ── Phase 3-4: Parsing + IR building ────────────────
+                # ── Phase 3: Semantic chunk filter ──────────────────
+                if "semantic_chunk" in phases and self.profile.name in ("aggressive", "max", "industrial"):
+                    _thresholds = {"aggressive": 0.25, "max": 0.20, "industrial": 0.15}
+                    _thresh = _thresholds.get(self.profile.name, 0.25)
+                    current, chunk_meta = compress_with_semantic_chunking(
+                        current,
+                        threshold=_thresh,
+                        chunk_size=384,
+                    )
+                    self._intermediate["semantic_chunk"] = chunk_meta
+
+                # ── Phase 4-5: Parsing + IR building ────────────────
                 if "parsing" in phases:
                     tree = parse(current)
                     self.ir = self._build_ir(tree, current)
@@ -184,7 +197,18 @@ class SPC:
                         result.compressed = current
                         result.fallback = True
 
-                # ── Phase 17-18: Metrics ───────────────────────────
+                # ── Phase 17: Quality validation ─────────────────────
+                if "quality" in phases:
+                    quality_result = validate_quality_fn(
+                        text, result.compressed, self.registry,
+                        min_similarity=0.55 if self.profile.name == "industrial" else 0.60,
+                    )
+                    self._intermediate["quality"] = quality_result
+                    if not quality_result["passed"]:
+                        logger.warning("Quality check: %s", "; ".join(quality_result["errors"]))
+                        result.fallback = True
+
+                # ── Phase 18-19: Metrics ────────────────────────────
                 if "metrics" in phases:
                     result.metrics = measure(text, result.compressed, self.cost_per_1k)
                     result.metrics.elapsed_ms = timer.ms()

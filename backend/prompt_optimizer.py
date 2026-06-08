@@ -709,33 +709,50 @@ class OptiTokenOptimizer:
         if spc_base:
             balanced_prompt = spc_base
 
-        # --- AGGRESSIVE : compression agressive sur base SPC (sans re-classification) ---
-        if spc_base:
-            agg_sentences = self._split_sentences(spc_base) if len(spc_base) > 0 else final
-            compressed_sents = [self._compress_sentence_aggressive(s, is_fr, category) for s in agg_sentences if s.strip()]
-            aggressive_prompt = "\n".join(compressed_sents) if compressed_sents else self._compress_sentence_aggressive(spc_base, is_fr, category)
-        else:
-            aggressive_prompt = self._original_aggressive(classified, is_fr, category)
-        aggressive_prompt = self._sanctuary_reinject(aggressive_prompt, sanctuary)
         if progress_callback:
-            progress_callback("max_industrial", 80)
+            progress_callback("aggressive", 60)
 
-        # --- MAX / INDUSTRIAL : compression SPC native (KOMPRESS neural + rule-based) ---
+        # --- AGGRESSIVE : SPC Aggressive pipeline (semantic_chunk + neural + rules) ---
+        aggressive_prompt = ""
+        if spc_enabled and len(clean_text.strip()) > 50:
+            try:
+                from .spc.pipeline import SPC as SPCCompiler
+                from .spc.profiles import AGGRESSIVE as SPC_AGGRESSIVE
+
+                cagg = SPCCompiler(profile=SPC_AGGRESSIVE)
+                ragg = cagg.compile(clean_text)
+                aggressive_prompt = ragg.compressed
+            except Exception as exc:
+                logging.warning("SPC aggressive pipeline failed: %s", exc)
+
+        # Fallback: stop-word removal si pipeline SPC indisponible
+        if not aggressive_prompt:
+            if spc_base:
+                agg_sentences = self._split_sentences(spc_base) if len(spc_base) > 0 else final
+                compressed_sents = [self._compress_sentence_aggressive(s, is_fr, category) for s in agg_sentences if s.strip()]
+                aggressive_prompt = "\n".join(compressed_sents) if compressed_sents else self._compress_sentence_aggressive(spc_base, is_fr, category)
+            else:
+                aggressive_prompt = self._original_aggressive(classified, is_fr, category)
+        aggressive_prompt = self._sanctuary_reinject(aggressive_prompt, sanctuary)
+
+        if progress_callback:
+            progress_callback("max_industrial", 75)
+
+        # --- MAX / INDUSTRIAL : SPC natif (KOMPRESS neural + semantic_chunk + rules) ---
         max_prompt = ""
         industrial_prompt = ""
-        if spc_enabled:
+        if spc_enabled and len(clean_text.strip()) > 50:
             try:
                 from .spc.pipeline import SPC as SPCCompiler
                 from .spc.profiles import MAX as SPC_MAX, INDUSTRIAL as SPC_INDUSTRIAL
 
-                spc_raw = spc_base or " ".join(final)
-                if len(spc_raw.strip()) > 50:
-                    cmax = SPCCompiler(profile=SPC_MAX)
-                    rmax = cmax.compile(spc_raw)
-                    max_prompt = rmax.compressed
-                    cind = SPCCompiler(profile=SPC_INDUSTRIAL)
-                    rind = cind.compile(spc_raw)
-                    industrial_prompt = rind.compressed
+                cmax = SPCCompiler(profile=SPC_MAX)
+                rmax = cmax.compile(clean_text)
+                max_prompt = rmax.compressed
+
+                cind = SPCCompiler(profile=SPC_INDUSTRIAL)
+                rind = cind.compile(clean_text)
+                industrial_prompt = rind.compressed
             except Exception as exc:
                 logging.warning("SPC max/industrial failed: %s", exc)
         max_prompt = self._sanctuary_reinject(max_prompt, sanctuary) if max_prompt else ""
@@ -783,9 +800,9 @@ def optimize_locally(prompt: str, category: str = None, spc_enabled: bool = True
     _meta = result.pop("_meta", {})
     changes_light = [{"type": "light_clean", "description": "Nettoyage conversationnel"}]
     changes_balanced = [{"type": "balanced_restruct", "description": "Restructuration par blocs + compression"}]
-    changes_aggressive = [{"type": "spc_aggressive", "description": "Compression télégraphique sur base SPC protégée"}]
-    changes_max = [{"type": "spc_max", "description": "SPC MAX: all rule-based + KOMPRESS neural"}]
-    changes_industrial = [{"type": "spc_industrial", "description": "SPC INDUSTRIAL: production-grade KOMPRESS + full rules"}]
+    changes_aggressive = [{"type": "spc_aggressive", "description": "SPC AGGRESSIVE: semantic chunk + KOMPRESS neural + rules"}]
+    changes_max = [{"type": "spc_max", "description": "SPC MAX: all rule-based + KOMPRESS neural + semantic chunk filter"}]
+    changes_industrial = [{"type": "spc_industrial", "description": "SPC INDUSTRIAL: production-grade KOMPRESS + full rules + quality validation"}]
     return {
         "versions": [
             {**result["light"], "changes_made": changes_light},
