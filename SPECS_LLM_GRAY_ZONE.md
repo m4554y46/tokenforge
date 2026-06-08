@@ -152,25 +152,80 @@ Preserve all original information. Do NOT add new instructions.
 
 ### Backend (`app.py`)
 ```python
+_llm_instance = None
+_llm_lock = _threading.Lock()
+
+def _get_llm():
+    global _llm_instance
+    if _llm_instance is None:
+        with _llm_lock:
+            if _llm_instance is None:
+                from backend.spc.llama_cpp import LlamaCpp
+                _llm_instance = LlamaCpp()
+    return _llm_instance
+
+@app.get("/api/llm/status")
+def llm_status():
+    """Vérifie la présence du fichier .gguf sans charger le modèle."""
+    llm = _get_llm()
+    return {"available": os.path.isfile(llm.model_path or ""), "model": llm.model_path}
+
 @app.post("/api/llm/refine")
-async def llm_refine(request: LLMRefineRequest):
+async def llm_refine(req: LLMRefineRequest):
     """Route pour appel LLM zone grise."""
-    result = await run_llm_refine(
-        text=request.text,
-        zone=request.zone,  # "ambiguity" | "protection" | "validation" | "register" | "restore"
-        model=request.model,  # "phi3" | "qwen25"
-    )
-    return {"result": result, "zone": request.zone}
+    zone = zone_map.get(req.zone, GrayZone.CAUSAL_VALIDATION)
+    llm = _get_llm()
+    router = GrayZoneRouter(llm=llm)
+    refined, meta = router.refine(text=req.text, original=req.original, zone=zone, force=True)
+    return {"refined": refined, "zone": req.zone, "meta": meta, "llm_available": True}
+```
+
+### Gray Zone Router (`backend/spc/gray_zone.py`)
+```python
+class GrayZoneRouter:
+    def __init__(self, llm: Optional[LlamaCpp] = None):
+        self.llm = llm
+        self._cache: OrderedDict = OrderedDict()  # LRU 1000 entrées, TTL 1h
+        self._user_profiles: Dict[str, UserProfile] = {}
+
+    def refine(self, text, original, zone, force=False):
+        zone_cfg = ZONE_PROMPTS[zone]
+        # Format ChatML pour compatibilité Phi-3
+        prompt = (
+            "<|system|>\n" + zone_cfg["system"] + "<|end|>\n"
+            "<|user|>\n" + user_content + "<|end|>\n"
+            "<|assistant|>\n"
+        )
+        result = self.llm.generate(prompt=prompt, ...)
+        ...
+```
+
+### LlamaCpp Wrapper (`backend/spc/llama_cpp.py`)
+```python
+class LlamaCpp:
+    def __init__(self, model_path=None, n_ctx=4096, n_threads=4):
+        self.model_path = model_path or self._find_model()
+        ...
+
+    def generate(self, prompt, max_tokens, temperature, stop):
+        """Génération avec cache LRU."""
+        ...
+
+    def chat(self, messages, max_tokens, temperature, stop):
+        """Chat completion via create_chat_completion, fallback raw generation."""
+        ...
 ```
 
 ### Frontend (`renderer.js`)
-- Nouveau toggle "LLM Refine" dans les options avancées
-- Badge "LLM" sur les résultats qui ont passé par un LLM
-- Indicateur de coût LLM (tokens consommés)
+- Toggle "Affinage LLM local" (id: `refineLlmToggle`) dans les options avancées
+- `checkLlmStatus()` appelé périodiquement via `setInterval(checkBackendStatus, 10000)`
+- Badge `LLM` sur les résultats passés par la Couche 2
+- Champ `refine_with_llm` envoyé dans la requête `POST /api/optimize`
 
 ### Cache
-- Les résultats LLM sont mis en cache (hash du chunk + zone) pour éviter les appels redondants
-- TTL: 1 heure
+- Cache LRU 1000 entrées avec TTL 1h
+- Clé = hash MD5(text + original + zone.value + user_id)
+- Cache partagé entre appels API et optimisation batch
 
 ---
 
@@ -181,6 +236,40 @@ async def llm_refine(request: LLMRefineRequest):
 - ✅ Barre progression temps réel
 - ✅ Semantic chunk filter (Stage 3)
 - ✅ Quality validation (Stage 2)
-- ⬜ Implémentation LLM gray zone (cette spec)
-- ⬜ Intégration Phi-3-mini via llama.cpp
-- ⬜ Tests d'intégration gray zone
+- ✅ **Implémentation LLM gray zone activée** — Phi-3-mini-4k-instruct Q4_K_M (~2.4 GB) téléchargé et fonctionnel
+- ✅ **Intégration Phi-3-mini via llama-cpp-python** (singleton thread-safe, cache LRU)
+- ✅ **5 zones grises opérationnelles** — tests unitaires validés
+
+### Détails d'implémentation
+
+**Modèle :** `phi-3-mini-4k-instruct-q4.gguf` (Q4_K_M) dans `backend/spc/models/`
+- `llama-cpp-python` v0.3.28 (pre-built wheel, CPU seulement)
+- Contexte : 4096 tokens (n_ctx=4096)
+- Inférence CPU, ~2.5 GB RAM
+
+**Architecture :**
+- `LlamaCpp` wrapper avec deux backends : python bindings (prioritaire) → subprocess `llama-cli` (fallback)
+- Singleton `_get_llm()` dans `app.py` — lazy-loaded, thread-safe (verrouillage)
+- `GrayZoneRouter` avec cache LRU 1000 entrées, TTL 1h
+- Prompts formatés en ChatML (`<|system|>` / `<|user|>` / `<|assistant|>`) pour compatibilité Phi-3
+
+**Endpoints :**
+- `GET /api/llm/status` — vérifie l'existence du fichier `.gguf` (ne charge pas le modèle)
+- `POST /api/llm/refine` — exécute une inférence sur une zone grise spécifique
+
+**Frontend :**
+- Toggle "Affinage LLM local" dans les options avancées
+- Badge `LLM` sur les résultats passés par la Couche 2
+- `checkLlmStatus()` appelé périodiquement pour afficher le statut en temps réel
+
+**Fichiers modifiés pour l'activation :**
+| Fichier | Changement |
+|---|---|
+| `backend/app.py` | Singleton `_get_llm()`, endpoints LLM, passage de l'instance partagée |
+| `backend/spc/llama_cpp.py` | n_ctx=4096, méthode `chat()`, cache LRU |
+| `backend/spc/gray_zone.py` | ChatML template, `compressed` variable dans les prompts |
+| `backend/prompt_optimizer.py` | Paramètre `_llm_instance` partagé |
+| `frontend/renderer.js` | `refine_with_llm` dans la requête, badge LLM |
+| `frontend/index.html` | Toggle "Affinage LLM local" |
+| `frontend/style.css` | Styles `.badge-llm`, `.llm-toggle-row` |
+| `requirements.txt` | `llama-cpp-python` ajouté |

@@ -198,9 +198,14 @@ class GrayZoneRouter:
             meta["error"] = f"Unknown zone: {zone}"
             return text, meta
 
-        prompt_vars = {"text": text, "original": original}
-        prompt = zone_cfg["system"] + "\n\n" + zone_cfg["prompt"].format(**prompt_vars)
-
+        prompt_vars = {"text": text, "original": original, "compressed": text}
+        # Build prompt with chat template tokens for Phi-3 / Qwen2.5 compatibility
+        user_content = zone_cfg["prompt"].format(**prompt_vars)
+        prompt = (
+            "<|system|>\n" + zone_cfg["system"] + "<|end|>\n"
+            "<|user|>\n" + user_content + "<|end|>\n"
+            "<|assistant|>\n"
+        )
         result = self.llm.generate(
             prompt=prompt,
             max_tokens=zone_cfg["max_tokens"],

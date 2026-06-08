@@ -299,4 +299,74 @@ Chaque étape est indépendante et peut être activée/désactivée par mode.
 
 ---
 
-*Document généré le 05/06/2026 — TokenForge v1.0.0*
+## 9. Couche 2 — Gray Zone LLM (post-processing optionnel)
+
+Après la compression SPC, une **Couche 2 optionnelle** peut affiner le résultat via un petit LLM local (Phi-3-mini 3.8B, Q4_K_M, CPU-only).
+
+### Principe
+
+Le Gray Zone Router (`backend/spc/gray_zone.py`) décide si un LLM est nécessaire selon :
+- **Taux de compression** > 50% (modes Aggressive+)
+- **Zone spécifique** : validation causale → ratio ≥ 40%, ré-expansion → ratio ≥ 60%
+- **Disponibilité** du LLM (fichier `.gguf` présent)
+
+### Les 5 zones grises
+
+1. **Ambiguïté sémantique** — Classifie une phrase comme CLEAR ou AMBIGUOUS
+2. **Protection fine** — Token-level KEEP/REMOVE contextuel (sortie JSON)
+3. **Validation causale** — Vérifie que les relations causales/temporelles sont préservées
+4. **Registre/Ton** — 5 labels : FORMAL, NEUTRAL, INFORMAL, URGENT, TECHNICAL
+5. **Ré-expansion** — Restaure un texte télégraphique (+20% tokens max)
+
+### Format des prompts
+
+Les prompts sont formatés en ChatML pour compatibilité avec Phi-3-mini :
+
+```
+<|system|>
+System instruction (zone-specific)
+<|end|>
+<|user|>
+### Original
+{original}
+
+### Compressed
+{compressed}
+
+### Output
+<|end|>
+<|assistant|>
+```
+
+### Architecture d'inférence
+
+```
+app.py (singleton _get_llm)
+  → LlamaCpp (llama-cpp-python bindings)
+    → Llama(model_path, n_ctx=4096)
+      → generate() avec cache LRU 500 entrées
+  → GrayZoneRouter
+    → should_refine() (filtre par ratio/zone)
+    → refine() (exécution + cache LRU 1000 entrées)
+```
+
+### Performances
+
+- **Phi-3-mini Q4_K_M** : ~2.4 GB sur disque, ~2.5 GB RAM
+- **Inférence CPU** : 10-30 secondes par appel selon la complexité
+- **Cache** : évite les appels redondants (hash MD5 de l'entrée)
+- **Singleton** : le modèle est chargé une seule fois, partagé entre requêtes
+
+### Activation
+
+```bash
+pip install llama-cpp-python  # déjà dans requirements.txt
+# Télécharger le modèle GGUF
+python -c "import requests; r=requests.get('https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf', stream=True); f=open('backend/spc/models/phi-3-mini-4k-instruct-q4.gguf','wb'); [f.write(c) for c in r.iter_content(8192)]"
+```
+
+Puis dans l'UI : activer le toggle **"Affinage LLM local"** dans les options avancées.
+
+---
+
+*Document généré le 08/06/2026 — TokenForge v1.0.0*

@@ -26,7 +26,7 @@ class LlamaCpp:
     Tries llama-cpp-python first, falls back to llama-cli subprocess.
     """
 
-    def __init__(self, model_path: Optional[str] = None, n_ctx: int = 2048, n_threads: int = 4):
+    def __init__(self, model_path: Optional[str] = None, n_ctx: int = 4096, n_threads: int = 4):
         self.model_path = model_path or self._find_model()
         self.n_ctx = n_ctx
         self.n_threads = n_threads
@@ -117,6 +117,32 @@ class LlamaCpp:
         except Exception as e:
             logger.warning("LLM generation failed: %s", e)
             return None
+
+    def chat(
+        self,
+        messages: list,
+        max_tokens: int = 64,
+        temperature: float = 0.1,
+        stop: Optional[list] = None,
+    ) -> Optional[str]:
+        """Chat completion using model's built-in chat template."""
+        if not self._load_backend() or self._backend != "python":
+            return self.generate(messages[-1]["content"] if messages else "", max_tokens, temperature, stop)
+
+        try:
+            output = self._llama.create_chat_completion(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stop=stop or [],
+            )
+            return output["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            logger.warning("Chat completion failed, falling back to raw generation: %s", e)
+            return self._generate_python(
+                messages[-1]["content"] if messages else "",
+                max_tokens, temperature, stop,
+            )
 
     def _generate_python(self, prompt: str, max_tokens: int, temperature: float, stop: Optional[list]) -> Optional[str]:
         output = self._llama(

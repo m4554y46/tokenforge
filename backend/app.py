@@ -15,6 +15,19 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict
 from backend.token_counter import count_tokens
 from backend.prompt_optimizer import optimize_prompt
+
+# Lazy singleton for local LLM (Gray Zone)
+_llm_instance = None
+_llm_lock = _threading.Lock()
+
+def _get_llm():
+    global _llm_instance
+    if _llm_instance is None:
+        with _llm_lock:
+            if _llm_instance is None:
+                from backend.spc.llama_cpp import LlamaCpp
+                _llm_instance = LlamaCpp()
+    return _llm_instance
 from backend.models import MODELS, OPTIMIZER_MODELS, calculate_cost, get_model_info
 from backend.database import (
     init_db,
@@ -155,9 +168,13 @@ def _run_optimize_task(session_id: str, req: OptimizeRequest):
         # Run optimization with progress callbacks
         from backend.prompt_optimizer import OptiTokenOptimizer
         opt = OptiTokenOptimizer()
+        # Pass the shared LLM instance if available
+        llm = _get_llm()
+        llm_instance = llm if (llm.model_path and os.path.isfile(llm.model_path)) else None
         result = opt.optimize(
             req.prompt, category=category, spc_enabled=True,
             progress_callback=on_progress, refine_with_llm=req.refine_with_llm,
+            _llm_instance=llm_instance,
         )
         _meta = result.pop("_meta", {})
 
@@ -254,7 +271,6 @@ async def llm_refine(req: LLMRefineRequest):
     """Refine compressed text through gray zone LLM."""
     try:
         from .spc.gray_zone import GrayZoneRouter, GrayZone
-        from .spc.llama_cpp import LlamaCpp
 
         zone_map = {
             "ambiguity": GrayZone.AMBIGUITY,
@@ -264,7 +280,9 @@ async def llm_refine(req: LLMRefineRequest):
             "reexpansion": GrayZone.REEXPANSION,
         }
         zone = zone_map.get(req.zone, GrayZone.CAUSAL_VALIDATION)
-        llm = LlamaCpp()
+        llm = _get_llm()
+        if not os.path.isfile(llm.model_path or ""):
+            return {"refined": req.text, "zone": req.zone, "llm_available": False}
         router = GrayZoneRouter(llm=llm)
         if not router.is_available():
             return {"refined": req.text, "zone": req.zone, "llm_available": False}
@@ -285,9 +303,9 @@ async def llm_refine(req: LLMRefineRequest):
 def llm_status():
     """Check if local LLM is available for gray zone refinement."""
     try:
-        from .spc.llama_cpp import LlamaCpp
-        llm = LlamaCpp()
-        return {"available": llm.is_available(), "model": llm.model_path}
+        llm = _get_llm()
+        model_ok = llm.model_path is not None and os.path.isfile(llm.model_path)
+        return {"available": model_ok, "model": llm.model_path}
     except Exception as exc:
         return {"available": False, "error": str(exc)}
 

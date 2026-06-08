@@ -2,7 +2,7 @@
 
 **Optimisez vos prompts LLM, réduisez vos coûts jusqu'à 75%+.**
 
-TokenForge est une application desktop qui analyse, optimise et compresse vos prompts LLM via un pipeline SPC (Semantic Prompt Compression) à 6 profils et 18 phases. Elle tourne entièrement en local (zéro dépendance cloud) avec des modèles de compression neuronaux embarqués.
+TokenForge est une application desktop qui analyse, optimise et compresse vos prompts LLM via un pipeline SPC (Semantic Prompt Compression) à 6 profils et 18 phases. Elle tourne entièrement en local (zéro dépendance cloud) avec des modèles de compression neuronaux embarqués et un petit LLM local en option pour les zones grises.
 
 ## Fonctionnalités
 
@@ -34,6 +34,8 @@ TokenForge est une application desktop qui analyse, optimise et compresse vos pr
 | Max | KOMPRESS ⤑ LLMLingua-2 | 45-65% | + KOMPRESS neural + semantic chunk + quality validation |
 | Industrial | KOMPRESS ⤑ LLMLingua-2 | 50-75% | Production-grade : KOMPRESS + semantic chunk + quality + rules |
 
+Tous les modes Aggressive+ peuvent être affinés par la **Couche 2 Gray Zone LLM** (Phi-3-mini) si activé et si le modèle `.gguf` est présent.
+
 ## Pipeline SPC (18 phases)
 
 ```
@@ -45,7 +47,7 @@ Ingestion → Protection → Semantic Chunk Filter → Parse → IR → Constrai
 
 ## Gray Zone LLM (Couche 2 — optionnel)
 
-Un petit LLM local (Phi-3-mini 3.8B, 8GB RAM, CPU-only) résout les 5 zones grises que les règles+KOMPRESS ne peuvent pas traiter seuls :
+Un petit LLM local Phi-3-mini (3.8B, ~2.5GB RAM en Q4_K_M, CPU-only) résout les 5 zones grises que les règles+KOMPRESS ne peuvent pas traiter seuls :
 
 | Zone | Problème | Solution LLM |
 |---|---|---|
@@ -56,6 +58,22 @@ Un petit LLM local (Phi-3-mini 3.8B, 8GB RAM, CPU-only) résout les 5 zones gris
 | Ré-expansion | Texte télégraphique ambigu | +20% tokens max, préservation sémantique |
 
 Le LLM est appelé uniquement si nécessaire (router + cache LRU 1000 entrées + profils utilisateur). **Zéro appel réseau, zéro coût API.**
+
+### Activation
+
+1. Téléchargez un modèle `.gguf` dans `backend/spc/models/` :
+   ```bash
+   # Phi-3-mini (recommandé, ~2.4 GB)
+   python -c "import requests; r = requests.get('https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf', stream=True); f=open('backend/spc/models/phi-3-mini-4k-instruct-q4.gguf','wb'); [f.write(c) for c in r.iter_content(8192)]"
+
+   # Alternative plus légère : Qwen2.5-1.5B (~0.9 GB)
+   # https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF
+   ```
+2. Le backend détecte automatiquement le fichier `.gguf` au démarrage
+3. Dans l'UI, activez le toggle **"Affinage LLM local"** dans les options avancées
+4. Le badge **LLM** apparaît sur les résultats passés par la Couche 2
+
+Le LLM est chargé une seule fois en mémoire (singleton thread-safe) et partagé entre toutes les requêtes.
 
 ## Prérequis
 
@@ -78,6 +96,11 @@ cd tokenforge
 pip install -r requirements.txt
 ```
 
+Pour activer la Couche 2 Gray Zone LLM, installez aussi :
+```bash
+pip install llama-cpp-python
+```
+
 ### 3. Installer les dépendances Node
 
 ```bash
@@ -92,7 +115,17 @@ python backend/spc/download_models.py
 
 Sans téléchargement, le pipeline utilise le fallback rule-based. Les modèles sont chargés en local `files_only=True` dès qu'ils sont présents dans `backend/spc/models/`.
 
-### 5. Lancer en mode développement
+### 5. Télécharger le LLM Gray Zone (optionnel)
+
+```bash
+# Phi-3-mini (recommandé, ~2.4 GB, nécessite ~2.5 GB RAM)
+python -c "import requests; requests.get('https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf', stream=True, timeout=30)"
+
+# Alternative : Qwen2.5-1.5B-Instruct (~0.9 GB)
+# Placez le fichier .gguf dans backend/spc/models/
+```
+
+### 6. Lancer en mode développement
 
 ```bash
 npm start
@@ -112,7 +145,7 @@ tokenforge/
 ├── .gitignore
 ├── backend/
 │   ├── app.py                  # API FastAPI (endpoints REST + progress async)
-│   ├── prompt_optimizer.py     # Optimiseur de prompts (3 niveaux + SPC)
+│   ├── prompt_optimizer.py     # Optimiseur de prompts (5 modes + SPC + Gray Zone)
 │   ├── document_analyzer.py    # Analyseur de documents (24 formats)
 │   ├── document_router.py      # Routes API documents (upload/compress)
 │   ├── token_counter.py        # Compteur de tokens (tiktoken)
@@ -124,6 +157,8 @@ tokenforge/
 │       ├── profiles.py         # 6 profils de compression
 │       ├── llmlingua2.py       # Moteur LLMLingua-2 natif
 │       ├── kompress.py         # Moteur KOMPRESS natif (ModernBert)
+│       ├── gray_zone.py        # Routeur Couche 2 — 5 zones grises + cache LRU + profils
+│       ├── llama_cpp.py        # Wrapper llama.cpp (python bindings + subprocess fallback)
 │       ├── protection.py       # Détection code/LaTeX/JSON/URLs
 │       ├── parser.py           # Analyse syntaxique
 │       ├── ir.py               # Information Retrieval (TF-IDF)
@@ -139,7 +174,9 @@ tokenforge/
 │       ├── cli.py              # Interface CLI
 │       ├── validator.py        # Validation post-compression
 │       ├── reconstruction.py   # Reconstruction finale
-│       └── tests/              # 149 tests unitaires
+│       ├── chunk_semantic.py   # Semantic chunk filter (Stage 3)
+│       ├── quality.py          # Quality validation (Stage 2)
+│       └── tests/              # Tests unitaires
 │           ├── bench_comprehensive.py  # Benchmark 45 combinaisons
 │           └── ...
 ├── frontend/
@@ -173,6 +210,13 @@ tokenforge/
 │  │  │         SPC Pipeline (18 phases)                │ ││
 │  │  │  Sanctuary → IR → Compression → Validation      │ ││
 │  │  │  KOMPRESS ⤑ LLMLingua-2 (fallback auto)        │ ││
+│  │  └──────────────────────┬──────────────────────────┘ ││
+│  │                         ▼                            ││
+│  │  ┌─────────────────────────────────────────────────┐ ││
+│  │  │  Couche 2 — Gray Zone LLM (optionnel)           │ ││
+│  │  │  Phi-3-mini → router (5 zones) → cache LRU      │ ││
+│  │  │  Ambiguïté / Protection / Validation / Registre  │ ││
+│  │  │  / Ré-expansion                                  │ ││
 │  │  └─────────────────────────────────────────────────┘ ││
 │  └──────────────────────────────────────────────────────┘│
 └──────────────────────────────────────────────────────────┘
@@ -256,13 +300,22 @@ python backend/spc/tests/bench_kompress_vs_llmlingua.py
 # Télécharger les modèles
 python backend/spc/download_models.py
 
+# Télécharger le LLM Gray Zone (Phi-3-mini, ~2.4 GB)
+python -c "import requests; r=requests.get('https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf', stream=True); [f.write(c) for c in r.iter_content(8192)]" 2>nul
+
+# Vérifier le statut du LLM local
+curl http://127.0.0.1:8765/api/llm/status
+
+# Tester une zone grise (validation causale)
+curl -X POST http://127.0.0.1:8765/api/llm/refine -H "Content-Type: application/json" -d '{\"text\":\"fox jumps over lazy dog\",\"original\":\"fox jumps over the lazy dog\",\"zone\":\"causal_validation\"}'
+
 # Build Windows
 npm run build:win
 ```
 
 ## Techniques de compression
 
-Voir [TECHNIQUES_COMPRESSION.md](./TECHNIQUES_COMPRESSION.md), [TECHNIQUES_TEMPLATES.md](./TECHNIQUES_TEMPLATES.md) et [SPECS_LLM_GRAY_ZONE.md](./SPECS_LLM_GRAY_ZONE.md) pour les specs LLM local (Phi-3-mini / Qwen2.5-1.5B) sur les 5 zones grises.
+Voir [TECHNIQUES_COMPRESSION.md](./TECHNIQUES_COMPRESSION.md), [TECHNIQUES_TEMPLATES.md](./TECHNIQUES_TEMPLATES.md) et [SPECS_LLM_GRAY_ZONE.md](./SPECS_LLM_GRAY_ZONE.md) pour les specs détaillées du LLM local (Phi-3-mini) et des 5 zones grises.
 
 ## Licence
 

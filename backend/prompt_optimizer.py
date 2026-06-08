@@ -603,7 +603,8 @@ class OptiTokenOptimizer:
 
     # --- MAIN OPTIMIZE ---
     def optimize(self, raw_prompt: str, category: str = None, spc_enabled: bool = True,
-                 progress_callback=None, refine_with_llm: bool = False) -> Dict[str, dict]:
+                 progress_callback=None, refine_with_llm: bool = False,
+                 _llm_instance=None) -> Dict[str, dict]:
         original = raw_prompt.strip()
         if progress_callback:
             progress_callback("sanctuary", 3)
@@ -767,7 +768,7 @@ class OptiTokenOptimizer:
                 from .spc.gray_zone import GrayZoneRouter, GrayZone
                 from .spc.llama_cpp import LlamaCpp
 
-                _llm = LlamaCpp()
+                _llm = _llm_instance if _llm_instance is not None else LlamaCpp()
                 _router = GrayZoneRouter(llm=_llm)
                 if _router.is_available():
                     for _mode_key, _txt in (
