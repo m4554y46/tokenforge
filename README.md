@@ -1,20 +1,41 @@
 # TokenForge - AI Prompt Optimizer & Token Saver
 
-**Optimisez vos prompts LLM, réduisez vos coûts jusqu'à 70%+.**
+**Optimisez vos prompts LLM, réduisez vos coûts jusqu'à 75%+.**
 
-TokenForge est une application desktop qui analyse, optimise et simule les coûts de vos prompts pour les modèles de langage (LLMs). Elle tourne entièrement en local et peut utiliser des LLMs externes puissants (Claude, GPT-4o, Gemini) pour une optimisation avancée.
+TokenForge est une application desktop qui analyse, optimise et compresse vos prompts LLM via un pipeline SPC (Semantic Prompt Compression) à 6 profils et 18 phases. Elle tourne entièrement en local (zéro dépendance cloud) avec des modèles de compression neuronaux embarqués.
 
 ## Fonctionnalités
 
-- **Calcul précis du nombre de tokens** avant envoi (support OpenAI, Claude, Gemini, Mistral, Meta)
-- **Optimisation automatique** avec 3 niveaux : Light, Balanced, Agressive
+- **Pipeline SPC complet** : 6 profils de compression (Safe, Light, Balanced, Aggressive, Max, Industrial)
+- **2 moteurs neuronaux embarqués** : KOMPRESS (ModernBert, 8192 tokens) + LLMLingua-2 (XLM-RoBERTa/BERT) — fallback automatique
+- **Compression intelligente** : contenu protégé (code, LaTeX, JSON, URLs), détection de langue (FR/EN), 24 formats de documents
+- **Import de documents** : PDF, DOCX, PPTX, XLSX, CSV, JSON, XML, HTML, Markdown, images (OCR), code source et plus
 - **Optimisation via IA externe** : utilisez Claude 4, GPT-4o ou Gemini 2.5 Pro pour optimiser vos prompts
-- **Optimisation locale** : fallback intégré sans clé API
-- **Simulateur de coûts** : comparez le coût d'un prompt sur tous les modèles
+- **Simulateur de coûts** : comparez le coût d'un prompt sur tous les modèles (OpenAI, Anthropic, Google, Mistral, Meta)
 - **Historique complet** : toutes les optimisations sont stockées localement (SQLite)
+- **Barre de progression temps réel** : pourcentage + phase + ETA pendant l'optimisation
+- **Dashboard KPI** : statistiques, économies, répartition par mode
 - **Templates** : créez et réutilisez des prompts
 - **Interface dark mode** : design moderne, professionnel
 - **100% local** : vos données restent sur votre machine
+
+## Modes de compression
+
+| Mode | Moteur | Réduction | Description |
+|---|---|---|---|
+| Safe | rule-based | 10-20% | Protection + exact dedup + structural cleanup |
+| Light | rule-based | 15-25% | + Suppression bruit conversationnel |
+| Balanced | rule-based | 25-40% | + Restructuration logique, near-dedup MinHash |
+| Aggressive | KOMPRESS ⤑ LLMLingua-2 | 40-60% | + Compression neuronale, temporel, exemples |
+| Max | KOMPRESS ⤑ LLMLingua-2 | 45-75% | + Toutes les règles + KOMPRESS neural |
+| Industrial | KOMPRESS ⤑ LLMLingua-2 | 45-75% | Production-grade : KOMPRESS + règles complètes |
+
+## Pipeline SPC (18 phases)
+
+```
+Sanctuary → Lang detect → Parsing → Cancellation → Purge → Dedup → Fragment → Classify
+→ IR build → IR scoring → Compression (6 profils) → Validate → Reconstruct → Reinject
+```
 
 ## Prérequis
 
@@ -27,7 +48,7 @@ TokenForge est une application desktop qui analyse, optimise et simule les coût
 ### 1. Cloner le projet
 
 ```bash
-git clone <votre-repo>
+git clone https://github.com/m4554y46/tokenforge
 cd tokenforge
 ```
 
@@ -43,35 +64,98 @@ pip install -r requirements.txt
 npm install
 ```
 
-### 4. Lancer en mode développement
+### 4. Télécharger les modèles de compression (optionnel — 7 GB)
+
+```bash
+python backend/spc/download_models.py
+```
+
+Sans téléchargement, le pipeline utilise le fallback rule-based. Les modèles sont chargés en local `files_only=True` dès qu'ils sont présents dans `backend/spc/models/`.
+
+### 5. Lancer en mode développement
 
 ```bash
 npm start
 ```
 
+Le backend démarre automatiquement sur `http://127.0.0.1:8765`.
+
 ## Structure du projet
 
 ```
 tokenforge/
-├── main.js                 # Point d'entrée Electron
-├── preload.js              # Bridge Electron sécurisé
-├── package.json            # Configuration Node/Electron
-├── requirements.txt        # Dépendances Python
-├── .env.example           # Exemple de configuration
-├── build.bat              # Script build Windows
-├── build.sh               # Script build Unix
+├── main.js                     # Point d'entrée Electron
+├── preload.js                  # Bridge Electron sécurisé
+├── package.json                # Configuration Node/Electron
+├── requirements.txt            # Dépendances Python
+├── AGENTS.md                   # Notes de développement
+├── .gitignore
 ├── backend/
-│   ├── app.py             # API FastAPI
-│   ├── token_counter.py   # Compteur de tokens
-│   ├── prompt_optimizer.py # Optimiseur de prompts
-│   ├── models.py          # Définitions des modèles
-│   ├── database.py        # SQLite (historique, clés, templates)
-│   └── utils.py           # Chiffrement des clés
+│   ├── app.py                  # API FastAPI (endpoints REST + progress async)
+│   ├── prompt_optimizer.py     # Optimiseur de prompts (3 niveaux + SPC)
+│   ├── document_analyzer.py    # Analyseur de documents (24 formats)
+│   ├── document_router.py      # Routes API documents (upload/compress)
+│   ├── token_counter.py        # Compteur de tokens (tiktoken)
+│   ├── models.py               # Définitions des modèles LLM
+│   ├── database.py             # SQLite (historique, clés, templates)
+│   ├── utils.py                # Chiffrement AES-256
+│   └── spc/                    # Semantic Prompt Compression engine
+│       ├── pipeline.py         # Orchestrateur 18 phases
+│       ├── profiles.py         # 6 profils de compression
+│       ├── llmlingua2.py       # Moteur LLMLingua-2 natif
+│       ├── kompress.py         # Moteur KOMPRESS natif (ModernBert)
+│       ├── protection.py       # Détection code/LaTeX/JSON/URLs
+│       ├── parser.py           # Analyse syntaxique
+│       ├── ir.py               # Information Retrieval (TF-IDF)
+│       ├── discourse.py        # Relations discursives
+│       ├── constraint.py       # Contraintes et négations
+│       ├── lexical.py          # Compression lexicale
+│       ├── structural.py       # Compression structurelle
+│       ├── dedup.py            # Déduplication exacte + MinHash
+│       ├── negation.py         # Préservation des négations
+│       ├── example_reducer.py  # Réduction d'exemples
+│       ├── metrics.py          # Métriques de compression
+│       ├── ingestion.py        # Prétraitement entrée
+│       ├── cli.py              # Interface CLI
+│       ├── validator.py        # Validation post-compression
+│       ├── reconstruction.py   # Reconstruction finale
+│       └── tests/              # 149 tests unitaires
+│           ├── bench_comprehensive.py  # Benchmark 45 combinaisons
+│           └── ...
 ├── frontend/
-│   ├── index.html         # Interface utilisateur
-│   ├── style.css          # Styles (dark mode)
-│   └── renderer.js        # Logique frontend
-└── assets/                # Icônes et ressources
+│   ├── index.html              # Interface utilisateur SPA
+│   ├── style.css               # Styles dark mode
+│   └── renderer.js             # Logique frontend
+└── assets/                     # Icônes et ressources
+```
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                   Electron (Node.js)                     │
+│  ┌─────────────┐          ┌───────────────────────────┐ │
+│  │  main.js     │          │  frontend/                │ │
+│  │  (process)   │◄──IPC──►│  index.html               │ │
+│  │              │          │  renderer.js              │ │
+│  └──────┬───────┘          │  style.css                │ │
+│         │                  └───────────┬───────────────┘ │
+│         │  spawn                       │ HTTP + polling   │
+│         ▼                              ▼                 │
+│  ┌──────────────────────────────────────────────────────┐│
+│  │              Python FastAPI (port 8765)               ││
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────────┐ ││
+│  │  │ token_   │ │prompt_   │ │document_ │ │database │ ││
+│  │  │ counter  │ │optimizer │ │analyzer  │ │(SQLite) │ ││
+│  │  └──────────┘ └────┬─────┘ └──────────┘ └─────────┘ ││
+│  │                     │                                 ││
+│  │  ┌──────────────────▼──────────────────────────────┐ ││
+│  │  │         SPC Pipeline (18 phases)                │ ││
+│  │  │  Sanctuary → IR → Compression → Validation      │ ││
+│  │  │  KOMPRESS ⤑ LLMLingua-2 (fallback auto)        │ ││
+│  │  └─────────────────────────────────────────────────┘ ││
+│  └──────────────────────────────────────────────────────┘│
+└──────────────────────────────────────────────────────────┘
 ```
 
 ## Utilisation
@@ -81,20 +165,36 @@ tokenforge/
 1. Lancez l'application
 2. Collez votre prompt dans la zone de texte
 3. Sélectionnez le **modèle cible** (GPT-4o, Claude, Gemini, etc.)
-4. Choisissez l'**optimiseur** :
-   - *Optimisation locale* (gratuit, basique)
-   - *OpenAI / Anthropic / Google* (nécessite une clé API)
-5. Cliquez sur **Optimiser**
-6. Comparez les 3 versions proposées
+4. Choisissez la **catégorie** (ou laissez l'auto-détection)
+5. Cliquez sur **Optimiser** — la barre de progression s'affiche
+6. Comparez les 5 versions proposées (Light → Industrial)
 7. Copiez ou utilisez la version choisie
+
+### Import de documents
+
+1. Allez dans l'onglet **Documents**
+2. Importez un fichier (PDF, DOCX, PPTX, XLSX, etc.)
+3. Choisissez le **mode de compression** et la **catégorie**
+4. Cliquez sur **Compresser**
+5. Visualisez la prévisualisation originale/compressée
+
+### Compression des modes
+
+| Mode | Dans l'UI | Pour document |
+|---|---|---|
+| Light | ✓ | ✓ |
+| Balanced | ✓ | ✓ |
+| Aggressive | ✓ | ✓ |
+| Max | ✓ | ✓ |
+| Industrial | ✓ | ✓ |
 
 ### Configuration des clés API
 
-Les clés API sont nécessaires pour utiliser l'optimisation via LLM externe. Vous pouvez les configurer :
+Les clés API sont nécessaires pour utiliser l'optimisation via LLM externe (OpenAI, Anthropic, Google). Vous pouvez les configurer :
 - Depuis l'onglet **API Keys** dans l'application
 - Directement depuis l'écran d'optimisation en sélectionnant un fournisseur
 
-Les clés sont chiffrées et stockées localement (chiffrement AES via `cryptography`).
+Les clés sont chiffrées et stockées localement (chiffrement AES-256 via `cryptography`).
 
 ## Build pour production
 
@@ -104,14 +204,7 @@ Les clés sont chiffrées et stockées localement (chiffrement AES via `cryptogr
 build.bat
 ```
 
-### macOS (.dmg)
-
-```bash
-chmod +x build.sh
-./build.sh
-```
-
-### Linux (.AppImage / .deb)
+### macOS (.dmg) / Linux (.AppImage)
 
 ```bash
 chmod +x build.sh
@@ -122,30 +215,6 @@ Les packages de distribution seront créés dans le dossier `dist/`.
 
 ## Développement
 
-### Architecture technique
-
-```
-┌─────────────────────────────────────────────┐
-│               Electron (Node.js)             │
-│  ┌─────────────┐       ┌──────────────────┐ │
-│  │  main.js     │       │  frontend/       │ │
-│  │  (process)   │◄─────►│  index.html      │ │
-│  │              │  IPC  │  renderer.js     │ │
-│  │              │       │  style.css       │ │
-│  └──────┬───────┘       └────────┬─────────┘ │
-│         │                        │           │
-│         │  spawn                 │ HTTP      │
-│         ▼                        ▼           │
-│  ┌─────────────────────────────────────────┐ │
-│  │         Python FastAPI (port 8765)       │ │
-│  │  ┌──────────┐ ┌──────────┐ ┌─────────┐ │ │
-│  │  │ token_   │ │prompt_   │ │database │ │ │
-│  │  │ counter  │ │optimizer │ │(SQLite) │ │ │
-│  │  └──────────┘ └──────────┘ └─────────┘ │ │
-│  └─────────────────────────────────────────┘ │
-└─────────────────────────────────────────────┘
-```
-
 ### Commandes utiles
 
 ```bash
@@ -155,21 +224,25 @@ python -m uvicorn backend.app:app --host 127.0.0.1 --port 8765 --reload
 # Lancer l'app Electron en mode dev
 npm start
 
-# Build Electron sans rebuild
-npx electron-builder --win --x64 --publish=never
+# Tests SPC (149 tests)
+python -m unittest backend.spc.tests
+
+# Benchmark complet (45 combinaisons profiles × catégories)
+python backend/spc/tests/bench_comprehensive.py
+
+# Benchmark KOMPRESS vs LLMLingua-2
+python backend/spc/tests/bench_kompress_vs_llmlingua.py
+
+# Télécharger les modèles
+python backend/spc/download_models.py
+
+# Build Windows
+npm run build:win
 ```
 
-## Extensions futures
+## Techniques de compression
 
-- **Port vers Tauri** : version plus légère (Rust + webview) sans Electron
-- **Proxy API** : agrégation et routage intelligent entre les fournisseurs
-- **Batch optimization** : optimiser plusieurs fichiers en lots
-- **Plugins community** : système de plugins pour ajouter des modèles
-- **Export formats** : JSON, CSV, Markdown
-- **Intégration IDE** : plugin VSCode, JetBrains
-- **Mode CLI** : outil en ligne de commande pour CI/CD
-- **Cache intelligent** : mise en cache des résultats d'optimisation
-- **Analyse comparative** : benchmark de différents modèles d'optimisation
+Voir [TECHNIQUES_COMPRESSION.md](./TECHNIQUES_COMPRESSION.md) et [TECHNIQUES_TEMPLATES.md](./TECHNIQUES_TEMPLATES.md) pour la documentation détaillée des 6 profils et des phases SPC.
 
 ## Licence
 
@@ -177,4 +250,4 @@ MIT
 
 ---
 
-*Construit avec Electron, FastAPI, et beaucoup de café.*
+*Construit avec Electron, FastAPI, PyTorch, et beaucoup de café.*
