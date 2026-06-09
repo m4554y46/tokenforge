@@ -18,6 +18,11 @@ dist/
 test_debug*.py
 test_electron.js
 test_telegraph.py
+.next/
+portal/.next/
+portal/next-env.d.ts
+portal/package-lock.json
+launcher.bat
 
 # LLMLingua-2 / KOMPRESS / CAMEMBERT / MODERNBERT model files
 # Download via: python backend/spc/download_models.py

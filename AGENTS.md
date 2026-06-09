@@ -1,74 +1,93 @@
-# TokenForge — AI Prompt Optimizer
+# TokenForge — Notes de développement
 
 ## Project
-Desktop app (Electron + Python FastAPI) for optimizing LLM prompts and reducing token costs.
-- **Backend**: Python FastAPI on `http://127.0.0.1:8765`
-- **Frontend**: Electron SPA (vanilla JS, dark mode)
-- **Stack**: Electron 33, Python 3.x, SQLite, AES-256 key encryption, tiktoken
-- **Repo**: https://github.com/m4554y46/tokenforge
+Plateforme LLM enterprise (v2) + application desktop de compression (v1 legacy).
+- **Backend**: Python FastAPI sur `http://127.0.0.1:8765`
+- **Frontend v1**: Electron SPA (`frontend/`) — vanilla JS, dark mode
+- **Portail v2**: Next.js 14 (`portal/`) — Dashboard DSI
+- **Stack**: FastAPI, SQLite/PostgreSQL, Redis (opt), Qdrant (opt), Electron 33, PyTorch
+- **Repo**: https://github.com/m4554y46/TokenForgev2
 
-## Key Files
-- `backend/spc/pipeline.py` — SPC pipeline orchestrator (18 phases)
-- `backend/spc/kompress.py` — KOMPRESS neural engine (ModernBert + token head)
-- `backend/spc/llmlingua2.py` — LLMLingua-2 native implementation (fallback engine)
-- `backend/spc/chunk_semantic.py` — Semantic chunk filter (Stage 3, MiniLM embedding)
-- `backend/spc/quality.py` — Quality validation (cosine similarity + integrity checks)
-- `backend/spc/profiles.py` — 6 profiles (Safe → Industrial)
-- **`backend/spc/gray_zone.py`** — Gray Zone router (5 zones, cache LRU 1000, profils utilisateur)
-- **`backend/spc/llama_cpp.py`** — llama.cpp wrapper (python bindings + subprocess fallback, n_ctx=4096)
-- `backend/prompt_optimizer.py` — Optimizer wrapper with 5 mode versions + progress + Gray Zone refine
-- `backend/app.py` — FastAPI routes, async optimization, progress polling, **LLM singleton** `_get_llm()`
-- `frontend/index.html`, `renderer.js`, `style.css` — SPA UI (LLM toggle + badge)
-- `main.js` — Electron main process (simplified: external backend management)
-- `preload.js` — Electron preload bridge
-- `admin/index.html` — Admin console (login: admin/tokenforge, endpoint `/console/`)
-- `forge_proxy_demo.py` — SDK proxy demo (interception OpenAI, compression, quality gate, fallback, stats)
-- `SPECS_LLM_GRAY_ZONE.md` — Specs for local LLM gray zone resolution (5 zones, prompts, architecture)
+## Documentation
+| Fichier | Contenu |
+|---------|---------|
+| [docs/GUIDE_V2_PLATFORM.md](./docs/GUIDE_V2_PLATFORM.md) | **Référence complète v2** — chaque module, API, SDK |
+| [README.md](./README.md) | Vue d'ensemble v1 + v2 |
+| [README_V2.md](./README_V2.md) | Index rapide modules v2 |
+| [GUIDE_UTILISATION.md](./GUIDE_UTILISATION.md) | Guide utilisateur (desktop + section v2) |
+| [docs/adr/](./docs/adr/) | Architecture Decision Records |
 
-## State at Last Session
-- **Pipeline SPC 18 phases** : ingestion → protection → semantic chunk filter → parse → IR → constraint → negation → exact dedup → near dedup → discourse → structural → lexical → logical → temporal → example reduction → neural (KOMPRESS ⤑ LLMLingua-2) → reconstruction → validation → quality check → metrics
-- **KOMPRESS natif** : ModernBertModel + token head + span CNN, 8192 contexte, 2.3× plus rapide que LLMLingua-2
-- **5 modes UI** : Light/Balanced rule-based, Aggressive/Max/Industrial KOMPRESS neural + semantic chunk + quality
-- **Async + progression temps réel** : polling 400ms, barre %, phase, ETA
-- **Couche 2 Gray Zone LLM activée** : Phi-3-mini-4k-instruct Q4_K_M (~2.4 GB, CPU, ~2.5 GB RAM)
-  - 5 zones grises fonctionnelles : ambiguïté, protection fine, validation causale, registre, ré-expansion
-  - ChatML template (`<|system|>`/`<|user|>`/`<|assistant|>`) pour compatibilité Phi-3
-  - Singleton `_get_llm()` dans app.py évite le rechargement à chaque requête
-  - Frontend toggle "Affinage LLM local" + badge `LLM` sur les résultats
-  - Endpoints : `GET /api/llm/status` (check fichier, ne charge pas le modèle) + `POST /api/llm/refine`
-  - Cache LRU 1000 entrées, TTL 1h, profils utilisateur
-- **8 fichiers modifiés** pour l'activation de la Couche 2 : `app.py`, `llama_cpp.py`, `gray_zone.py`, `prompt_optimizer.py`, `renderer.js`, `index.html`, `style.css`, `requirements.txt`
-- **Historique corrigé** : `"\n".join(list[dict])` → extraction `description`. `loadHistory()` au clic.
-- **Semantic chunk filter** : chunk → embed (MiniLM) → score cosinus → drop low-relevance
-- **Quality validation** : cosine similarity original vs compressed (seuil 0.55-0.60), contenu critique, spans protégés, token ratio
-- **Proxy SDK** : `forge_proxy_demo.py` créé — interception transparente `openai.chat.completions.create()`, compression via pipeline KOMPRESS, quality gate multi-pass (60%→40%→20%→0%), fallback transparent, statistiques session
-  - Testé en simulation : ~35% économie texte bavard, code Python préservé intégralement, Sanctuary actif
-- **Electron simplifié** : `main.js` ne lance plus le backend (gestion externe), icon supprimée, `show: true` par défaut, pas de DevTools en prod
-- **Backend accessible via navigateur** : `http://127.0.0.1:8765/` sert l'IHM complète (Electron non nécessaire)
+## Key Files — v1 (legacy, inchangé)
+
+- `backend/spc/pipeline.py` — Orchestrateur SPC 18 phases
+- `backend/spc/kompress.py` — Moteur KOMPRESS (ModernBert)
+- `backend/spc/llmlingua2.py` — Fallback LLMLingua-2
+- `backend/spc/gray_zone.py` — Gray Zone router (5 zones, cache LRU)
+- `backend/spc/llama_cpp.py` — Wrapper llama.cpp (Phi-3-mini)
+- `backend/prompt_optimizer.py` — Optimiseur 5 modes + SPC + Gray Zone
+- `backend/middleware/proxy.py` — Proxy OpenAI `/v1/chat/completions`
+- `backend/app.py` — FastAPI v1 + montage v2
+- `frontend/` — UI desktop legacy
+- `forge_proxy_demo.py` — Démo SDK proxy
+
+## Key Files — v2 (enterprise)
+
+### Infrastructure
+- `backend/config.py` — Configuration (env vars)
+- `backend/core/database_v2.py` — Persistance multi-tenant
+- `backend/core/cache.py` — Redis / fallback mémoire
+- `backend/core/tenant.py` — Contexte X-Tenant-ID / X-User-ID
+- `backend/core/auth.py` — JWT + RBAC
+
+### Piliers
+- `backend/memory/` — User/Tenant Memory (7 fichiers)
+- `backend/prompts/` — Prompt Analytics (inventory, similarity, diff, explain)
+- `backend/finops/` — Cost registry, budgets, forecast, anomalies, ROI
+- `backend/governance/` — Rule engine, compliance, approval workflows
+- `backend/gateway/` — Predictive router, circuit breaker, cache governor
+- `backend/observability/hub.py` — Métriques, traces, Prometheus
+- `backend/experiments/experiment_manager.py` — A/B testing
+
+### API & UI
+- `backend/api/v2/router.py` — Tous les endpoints `/api/v2/*`
+- `portal/` — Portail Next.js (Dashboard, FinOps, Memory, Governance…)
+- `sdk/python/tokenforge_v2/client.py` — SDK Python
+- `sdk/node/index.js` — SDK Node.js
+- `tests/test_v2_platform.py` — Tests plateforme v2
+
+## API Surface
+
+| Préfixe | Version | Usage |
+|---------|---------|-------|
+| `/api/*` | v1 | Optimisation, historique, clés, templates |
+| `/v1/*` | v1 | Proxy OpenAI-compatible |
+| `/api/v2/*` | v2 | Intelligence Platform enterprise |
 
 ## Commands
 ```powershell
-cd C:\Users\micas\tokenforge
-python -m uvicorn backend.app:app --host 127.0.0.1 --port 8765  # start backend
-npm start              # launch Electron GUI
-npm run build:win      # build Windows .exe
+cd C:\Users\michel.assayag-exter\Documents\TokenForgev2
 
-# Gray Zone LLM
-curl http://127.0.0.1:8765/api/llm/status                              # check LLM status
-curl -X POST http://127.0.0.1:8765/api/llm/refine -H "Content-Type: application/json" -d '{\"text\":\"...\",\"zone\":\"causal_validation\"}'  # test refine
+# Backend
+python -m uvicorn backend.app:app --host 127.0.0.1 --port 8765
 
-# Proxy SDK
-python forge_proxy_demo.py                                                    # simulation (sans API key)
-python forge_proxy_demo.py --api-key sk-... --profile balanced                # interception réelle OpenAI
-python forge_proxy_demo.py --help                                              # options complètes
+# Desktop legacy
+npm start
+
+# Portail v2
+cd portal && npm run dev
+
+# Tests
+python -m unittest backend.spc.tests
+python -m unittest tests.test_v2_platform
+
+# Docker prod
+docker-compose up -d
 ```
 
 ## Notes
-- Port 8765 must be free before starting (stale Python processes block it)
-- Electron needs display (won't work from agent CLI)
-- French + English prompts both supported
-- Zero-regression on code/LaTeX/JSON/units/templates via Sanctuary
-- `backend/spc/models/` contient CamemBERT + ModernBERT + KOMPRESS + Phi-3-mini GGUF
-- LLM singleton (`_get_llm()`) lazy-loaded, thread-safe
-- `forge_proxy_demo.py` peut tourner sans clé API (mode simulation) ou avec une vraie clé OpenAI
-- L'interface web est accessible sur `http://127.0.0.1:8765/` — aucun besoin d'Electron
+- Port 8765 doit être libre
+- API v1 = zéro régression — ne pas modifier les signatures existantes
+- v2 s'ajoute en parallèle via `/api/v2/*`
+- DB v1 : `tokenforge.db` (SQLite) — historique, clés, templates
+- DB v2 : `tokenforge_v2.db` ou PostgreSQL — mémoire, finops, gouvernance
+- Headers v2 : `X-Tenant-ID`, `X-User-ID` sur toutes les routes enterprise

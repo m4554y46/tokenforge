@@ -48,13 +48,15 @@ _proxy_stats: Dict[str, Any] = {
     "total_streaming": 0,
 }
 
-# Client HTTP singleton pour le forwarding
-_client = httpx.AsyncClient(timeout=FORGE_PROXY_TIMEOUT, verify=True)
+# Client HTTP singleton pour le forwarding (créé à la première utilisation)
+_client: Optional[httpx.AsyncClient] = None
 
 
 async def _get_client() -> httpx.AsyncClient:
     """Retourne le client HTTP singleton, le réinitialise si le timeout a changé."""
     global _client
+    if _client is None:
+        _client = httpx.AsyncClient(timeout=FORGE_PROXY_TIMEOUT, verify=True)
     return _client
 
 
@@ -95,8 +97,11 @@ class _Compressor:
             if result.fallback or result.error:
                 return text, True, FORGE_COMPRESSION_PROFILE
 
-            # Verifier que le compresse est strictement plus court
-            if len(compressed) >= len(text) * 0.90:
+            # Verifier que le compresse est strictement plus court (comparaison token)
+            from backend.token_counter import count_tokens
+            orig_tok = count_tokens(text)
+            comp_tok = count_tokens(compressed)
+            if comp_tok >= orig_tok * 0.90 or comp_tok >= orig_tok:
                 return text, True, FORGE_COMPRESSION_PROFILE
 
             return compressed, False, FORGE_COMPRESSION_PROFILE
@@ -269,7 +274,7 @@ async def chat_completions(request: Request):
 
     logger.info(
         "PROXY %s | model=%s | tokens=%d->%d (%.0f%%) | stream=%s | %.1fs",
-        request.client.host if request.client else "?",
+        request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "?"),
         body.get("model", "?"),
         stats.get("original_tokens", 0),
         stats.get("compressed_tokens", 0),

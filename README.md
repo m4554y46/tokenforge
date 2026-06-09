@@ -1,8 +1,15 @@
-# TokenForge - AI Prompt Optimizer & Token Saver
+# TokenForge Intelligence Platform v2
 
-**Optimisez vos prompts LLM, réduisez vos coûts jusqu'à 75%+.**
+**Optimisez vos prompts LLM, réduisez vos coûts jusqu'à 75%+ — et pilotez l'IA à l'échelle entreprise.**
 
-TokenForge est une application desktop qui analyse, optimise et compresse vos prompts LLM via un pipeline SPC (Semantic Prompt Compression) à 6 profils et 18 phases. Elle tourne entièrement en local (zéro dépendance cloud) avec des modèles de compression neuronaux embarqués et un petit LLM local en option pour les zones grises.
+TokenForge est une plateforme complète qui combine :
+
+- **v1 (legacy)** — Application desktop + compression SPC locale, proxy OpenAI, Electron
+- **v2 (enterprise)** — Memory Layer, FinOps, Gouvernance, Prompt Analytics, Smart Gateway, Observability
+
+> Documentation v2 détaillée : **[docs/GUIDE_V2_PLATFORM.md](./docs/GUIDE_V2_PLATFORM.md)**
+
+Le cœur reste le pipeline **SPC (Semantic Prompt Compression)** à 6 profils et 18 phases, exécutable entièrement en local avec des modèles neuronaux embarqués et un petit LLM local optionnel pour les zones grises.
 
 ## Fonctionnalités
 
@@ -22,6 +29,31 @@ TokenForge est une application desktop qui analyse, optimise et compresse vos pr
 - **Templates** : créez et réutilisez des prompts
 - **Interface dark mode** : design moderne, professionnel
 - **100% local** : vos données restent sur votre machine
+
+## TokenForge v2 — Intelligence Platform
+
+| Pilier | Dossier | Ce que ça fait | ROI client |
+|--------|---------|----------------|------------|
+| **Memory Layer** | `backend/memory/` | Apprend langue, ton, format, terminologie métier | −30% tokens répétitifs |
+| **Prompt Intelligence** | `backend/prompts/` | Inventaire, doublons, diff, explicabilité | Cible les prompts les plus coûteux |
+| **FinOps** | `backend/finops/` | Coûts, budgets, prévisions, anomalies, ROI | Budget maîtrisé, ROI prouvable |
+| **Governance** | `backend/governance/` | Politiques, conformité RGPD/SOC2, audit | Réduit les risques réglementaires |
+| **Smart Gateway** | `backend/gateway/` | Routeur prédictif, circuit breaker, cache | Cache hit + compression automatique |
+| **Observability** | `backend/observability/` | Métriques, traces, Prometheus | Visibilité type Datadog |
+| **Experiments** | `backend/experiments/` | A/B original vs compressé | Décisions data-driven |
+| **Portail web** | `portal/` | Dashboard DSI Next.js | Interface enterprise |
+| **SDKs** | `sdk/python/`, `sdk/node/` | Intégration programmatique | Adoption rapide |
+
+**API v2 :** `http://127.0.0.1:8765/api/v2` — headers `X-Tenant-ID`, `X-User-ID`  
+**L'API v1 (`/api/*`, `/v1/*`) reste 100% compatible** — zéro régression.
+
+```bash
+# Dashboard DSI
+curl http://127.0.0.1:8765/api/v2/dashboard -H "X-Tenant-ID: default" -H "X-User-ID: admin"
+
+# Portail Next.js
+cd portal && npm install && npm run dev   # → http://localhost:3000
+```
 
 ## Modes de compression
 
@@ -86,8 +118,8 @@ Le LLM est chargé une seule fois en mémoire (singleton thread-safe) et partag�
 ### 1. Cloner le projet
 
 ```bash
-git clone https://github.com/m4554y46/tokenforge
-cd tokenforge
+git clone https://github.com/m4554y46/TokenForgev2
+cd TokenForgev2
 ```
 
 ### 2. Installer les dépendances Python
@@ -136,91 +168,56 @@ Le backend démarre automatiquement sur `http://127.0.0.1:8765`.
 ## Structure du projet
 
 ```
-tokenforge/
-├── main.js                     # Point d'entrée Electron
-├── preload.js                  # Bridge Electron sécurisé
-├── package.json                # Configuration Node/Electron
-├── requirements.txt            # Dépendances Python
-├── AGENTS.md                   # Notes de développement
-├── .gitignore
+TokenForgev2/
+├── main.js, preload.js         # Electron (desktop legacy)
+├── frontend/                   # UI v1 (SPA vanilla JS)
+├── portal/                     # Portail enterprise Next.js 14
+├── sdk/
+│   ├── python/tokenforge_v2/   # SDK Python
+│   └── node/                   # SDK Node.js
+├── docs/
+│   ├── GUIDE_V2_PLATFORM.md    # Guide complet v2
+│   └── adr/                    # Architecture Decision Records
+├── docker-compose.yml          # PostgreSQL + Redis + Qdrant
 ├── backend/
-│   ├── app.py                  # API FastAPI (endpoints REST + progress async)
-│   ├── prompt_optimizer.py     # Optimiseur de prompts (5 modes + SPC + Gray Zone)
-│   ├── document_analyzer.py    # Analyseur de documents (24 formats)
-│   ├── document_router.py      # Routes API documents (upload/compress)
-│   ├── token_counter.py        # Compteur de tokens (tiktoken)
-│   ├── models.py               # Définitions des modèles LLM
-│   ├── database.py             # SQLite (historique, clés, templates)
-│   ├── utils.py                # Chiffrement AES-256
-│   └── spc/                    # Semantic Prompt Compression engine
-│       ├── pipeline.py         # Orchestrateur 18 phases
-│       ├── profiles.py         # 6 profils de compression
-│       ├── llmlingua2.py       # Moteur LLMLingua-2 natif
-│       ├── kompress.py         # Moteur KOMPRESS natif (ModernBert)
-│       ├── gray_zone.py        # Routeur Couche 2 — 5 zones grises + cache LRU + profils
-│       ├── llama_cpp.py        # Wrapper llama.cpp (python bindings + subprocess fallback)
-│       ├── protection.py       # Détection code/LaTeX/JSON/URLs
-│       ├── parser.py           # Analyse syntaxique
-│       ├── ir.py               # Information Retrieval (TF-IDF)
-│       ├── discourse.py        # Relations discursives
-│       ├── constraint.py       # Contraintes et négations
-│       ├── lexical.py          # Compression lexicale
-│       ├── structural.py       # Compression structurelle
-│       ├── dedup.py            # Déduplication exacte + MinHash
-│       ├── negation.py         # Préservation des négations
-│       ├── example_reducer.py  # Réduction d'exemples
-│       ├── metrics.py          # Métriques de compression
-│       ├── ingestion.py        # Prétraitement entrée
-│       ├── cli.py              # Interface CLI
-│       ├── validator.py        # Validation post-compression
-│       ├── reconstruction.py   # Reconstruction finale
-│       ├── chunk_semantic.py   # Semantic chunk filter (Stage 3)
-│       ├── quality.py          # Quality validation (Stage 2)
-│       └── tests/              # Tests unitaires
-│           ├── bench_comprehensive.py  # Benchmark 45 combinaisons
-│           └── ...
-├── frontend/
-│   ├── index.html              # Interface utilisateur SPA
-│   ├── style.css               # Styles dark mode
-│   └── renderer.js             # Logique frontend
-└── assets/                     # Icônes et ressources
+│   ├── app.py                  # FastAPI v1 + v2
+│   ├── config.py               # Configuration centralisée v2
+│   ├── core/                   # DB v2, cache, auth, multi-tenant
+│   ├── api/v2/router.py        # API Intelligence Platform
+│   ├── memory/                 # Pilier 1 — User/Tenant Memory
+│   ├── prompts/                # Pilier 2 — Prompt Analytics
+│   ├── finops/                 # Pilier 3 — FinOps & ROI
+│   ├── governance/             # Pilier 4 — Policies & Compliance
+│   ├── gateway/                # Pilier 5 — Smart Gateway
+│   ├── observability/          # Métriques & traces
+│   ├── experiments/            # A/B testing
+│   ├── middleware/proxy.py     # Proxy OpenAI-compatible (v1)
+│   ├── spc/                    # Pipeline SPC 18 phases (v1)
+│   └── ...                     # Modules legacy (optimizer, documents…)
+└── tests/test_v2_platform.py   # Tests plateforme v2
 ```
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                   Electron (Node.js)                     │
-│  ┌─────────────┐          ┌───────────────────────────┐ │
-│  │  main.js     │          │  frontend/                │ │
-│  │  (process)   │◄──IPC──►│  index.html               │ │
-│  │              │          │  renderer.js              │ │
-│  └──────┬───────┘          │  style.css                │ │
-│         │                  └───────────┬───────────────┘ │
-│         │  spawn                       │ HTTP + polling   │
-│         ▼                              ▼                 │
-│  ┌──────────────────────────────────────────────────────┐│
-│  │              Python FastAPI (port 8765)               ││
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────────┐ ││
-│  │  │ token_   │ │prompt_   │ │document_ │ │database │ ││
-│  │  │ counter  │ │optimizer │ │analyzer  │ │(SQLite) │ ││
-│  │  └──────────┘ └────┬─────┘ └──────────┘ └─────────┘ ││
-│  │                     │                                 ││
-│  │  ┌──────────────────▼──────────────────────────────┐ ││
-│  │  │         SPC Pipeline (18 phases)                │ ││
-│  │  │  Sanctuary → IR → Compression → Validation      │ ││
-│  │  │  KOMPRESS ⤑ LLMLingua-2 (fallback auto)        │ ││
-│  │  └──────────────────────┬──────────────────────────┘ ││
-│  │                         ▼                            ││
-│  │  ┌─────────────────────────────────────────────────┐ ││
-│  │  │  Couche 2 — Gray Zone LLM (optionnel)           │ ││
-│  │  │  Phi-3-mini → router (5 zones) → cache LRU      │ ││
-│  │  │  Ambiguïté / Protection / Validation / Registre  │ ││
-│  │  │  / Ré-expansion                                  │ ││
-│  │  └─────────────────────────────────────────────────┘ ││
-│  └──────────────────────────────────────────────────────┘│
-└──────────────────────────────────────────────────────────┘
+Clients (SDK / IDE / Electron / Portail Next.js)
+        │
+        ▼
+┌───────────────────────────────────────────────────────────┐
+│           FastAPI (port 8765)                             │
+│  /api/* (v1)  ·  /api/v2/* (enterprise)  ·  /v1/* proxy │
+├───────────────────────────────────────────────────────────┤
+│  Gateway v2 ──► Memory ──► FinOps ──► Governance          │
+│       │                                                   │
+│       ▼                                                   │
+│  SPC Pipeline (18 phases) + Gray Zone LLM (optionnel)     │
+└───────────────────────────────────────────────────────────┘
+        │
+        ▼
+  Providers LLM (OpenAI, Anthropic, Gemini, DeepSeek…)
 ```
+
+Voir [docs/GUIDE_V2_PLATFORM.md](./docs/GUIDE_V2_PLATFORM.md) pour le détail de chaque module v2.
 
 ## Utilisation
 
@@ -288,8 +285,14 @@ python -m uvicorn backend.app:app --host 127.0.0.1 --port 8765 --reload
 # Lancer l'app Electron en mode dev
 npm start
 
-# Tests SPC (149 tests)
+# Tests SPC v1 (149 tests — régression)
 python -m unittest backend.spc.tests
+
+# Tests plateforme v2
+python -m unittest tests.test_v2_platform
+
+# Portail enterprise
+cd portal && npm run dev
 
 # Benchmark complet (45 combinaisons profiles × catégories)
 python backend/spc/tests/bench_comprehensive.py
@@ -313,9 +316,15 @@ curl -X POST http://127.0.0.1:8765/api/llm/refine -H "Content-Type: application/
 npm run build:win
 ```
 
-## Techniques de compression
+## Documentation
 
-Voir [TECHNIQUES_COMPRESSION.md](./TECHNIQUES_COMPRESSION.md), [TECHNIQUES_TEMPLATES.md](./TECHNIQUES_TEMPLATES.md) et [SPECS_LLM_GRAY_ZONE.md](./SPECS_LLM_GRAY_ZONE.md) pour les specs détaillées du LLM local (Phi-3-mini) et des 5 zones grises.
+| Document | Contenu |
+|----------|---------|
+| [docs/GUIDE_V2_PLATFORM.md](./docs/GUIDE_V2_PLATFORM.md) | **Guide complet v2** — chaque module, API, SDK, déploiement |
+| [GUIDE_UTILISATION.md](./GUIDE_UTILISATION.md) | Guide utilisateur desktop (v1) |
+| [TECHNIQUES_COMPRESSION.md](./TECHNIQUES_COMPRESSION.md) | Pipeline SPC détaillé |
+| [SPECS_LLM_GRAY_ZONE.md](./SPECS_LLM_GRAY_ZONE.md) | Couche 2 Gray Zone LLM |
+| [docs/adr/](./docs/adr/) | Décisions d'architecture v2 |
 
 ## Licence
 

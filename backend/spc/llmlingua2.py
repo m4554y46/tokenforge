@@ -200,10 +200,12 @@ def _get_model_and_tokenizer(
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token_id = tokenizer.eos_token_id
 
-        added_tokens = [f"[K{i}]" for i in range(max_force_token)]
-        tokenizer.add_special_tokens(
-            {"additional_special_tokens": added_tokens}
-        )
+        existing = set(tokenizer.get_added_vocab().keys())
+        needed = [t for t in [f"[K{i}]" for i in range(max_force_token)] if t not in existing]
+        if needed:
+            tokenizer.add_special_tokens(
+                {"additional_special_tokens": needed}
+            )
 
         model = AutoModelForTokenClassification.from_pretrained(
             model_source,
@@ -466,7 +468,7 @@ def _compress_chunks(
 
                 # Post-merge force-token enforcement (handles multi-token words)
                 for i, cw in enumerate(clean_words):
-                    if cw in force_set:
+                    if _match_in_force(cw):
                         word_probs[i] = 1.0
 
                 if drop_consecutive:
@@ -474,7 +476,7 @@ def _compress_chunks(
                     is_between = False
                     prev = None
                     for i, (cw, wp) in enumerate(zip(clean_words, word_probs)):
-                        if cw in force_set:
+                        if _match_in_force(cw):
                             if is_between:
                                 is_between = False
                             elif not is_between and cw == prev:
@@ -498,7 +500,7 @@ def _compress_chunks(
                     if wp > threshold or (threshold == 1.0 and wp == threshold):
                         is_consecutive = (
                             drop_consecutive
-                            and cw in force_set
+                            and _match_in_force(cw)
                             and _last_cw is not None
                             and cw == _last_cw
                         )
@@ -507,11 +509,13 @@ def _compress_chunks(
                         else:
                             keep_words.append(word)
                             word_labels.append(1)
-                            _last_cw = cw if cw in force_set else None
+                            _last_cw = cw if _match_in_force(cw) else None
                     else:
                         word_labels.append(0)
 
-                keep_str = tokenizer.convert_tokens_to_string(keep_words)
+                keep_str = " ".join(keep_words)
+                keep_str = re.sub(r'\s+([.,;:!?)\]}%])', r'\1', keep_str)
+                keep_str = re.sub(r'([\(\[{])\s+', r'\1', keep_str)
                 for i in range(len(words)):
                     if _is_xlm_roberta(model_key):
                         words[i] = words[i].lstrip("▁")
@@ -608,7 +612,12 @@ def compress_with_llmlingua2(
             special_tokens=entry.get("special_tokens"),
         )
 
-        compressed_text = "".join(compressed_chunks)
+        compressed_text = compressed_chunks[0] if compressed_chunks else ""
+        for c in compressed_chunks[1:]:
+            if c and c[0].isalnum() and compressed_text and not compressed_text[-1].isspace():
+                compressed_text += " " + c
+            else:
+                compressed_text += c
         # Restore original multi-word force tokens
         for placeholder, original in _ft_replacements.items():
             compressed_text = compressed_text.replace(placeholder, original)

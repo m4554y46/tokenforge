@@ -7,6 +7,7 @@ import threading as _threading
 import time as _time
 import uuid as _uuid
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,7 +47,24 @@ from backend.database import (
 from backend.utils import encrypt_api_key, decrypt_api_key, mask_api_key
 from backend.document_router import router as document_router
 
-app = FastAPI(title="TokenForge API", version="1.0.0")
+from backend.config import get_settings
+
+_settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    # Startup
+    init_db()
+    from backend.core.database_v2 import init_v2_db
+    init_v2_db()
+    yield
+    # Shutdown
+    from backend.core.cache import cache
+    cache.clear()
+
+
+app = FastAPI(title=_settings.APP_NAME, version=_settings.APP_VERSION, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -112,14 +130,12 @@ class TemplateRequest(BaseModel):
     content: str
 
 
-@app.on_event("startup")
-def startup():
-    init_db()
+
 
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "1.0.0"}
+    return {"status": "ok", "version": _settings.APP_VERSION, "platform": _settings.APP_NAME}
 
 
 @app.post("/api/count-tokens", response_model=CountResponse)
@@ -217,6 +233,22 @@ def _run_optimize_task(session_id: str, req: OptimizeRequest):
                 )
             except Exception as exc:
                 logger.warning("Failed to save history: %s", exc)
+
+        # Enregistrer l'événement dans FinOps (v2) pour alimenter le dashboard
+        try:
+            from backend.finops.cost_registry import CostRegistry
+            # Prendre le dernier (meilleur) résultat de versions
+            _best_version = versions[-1] if versions else None
+            if _best_version and original_tokens > 0:
+                CostRegistry().record_event(
+                    tenant_id="default", user_id="local",
+                    prompt=req.prompt, model=req.target_model,
+                    compressed=True,
+                    savings_percent=_best_version.get("savings_percent", 0),
+                    profile=_best_version.get("label", "local").lower(),
+                )
+        except Exception as exc:
+            logger.warning("Failed to record FinOps event: %s", exc)
 
         _tasks[session_id].update({
             "progress": 100,
@@ -447,6 +479,10 @@ def restart_api():
 
 
 app.include_router(document_router)
+
+# ── TokenForge Intelligence Platform API v2 ───────────
+from backend.api.v2.router import router as v2_router
+app.include_router(v2_router)
 
 # ── Proxy reseau transparent OpenAI ─────────────────────
 from backend.middleware.proxy import router as proxy_router

@@ -24,18 +24,18 @@ def count_tokens_openai(text, model="gpt-4o"):
         return count_tokens_approximate(text)
 
 
-def count_tokens_anthropic(text):
+def count_tokens_anthropic(text, model=None):
     approx = len(text) // 3.5
     claude_mult = 1.1
     return max(1, int(approx * claude_mult))
 
 
-def count_tokens_google(text):
+def count_tokens_google(text, model=None):
     approx = len(text) // 4
     return max(1, int(approx))
 
 
-def count_tokens_mistral(text):
+def count_tokens_mistral(text, model=None):
     try:
         encoding = _get_encoding("gpt-4o")
         return len(encoding.encode(text))
