@@ -90,6 +90,69 @@ MODELS = {
         "context_window": 128000,
         "family": "Llama 3.1 70B",
     },
+    "gpt-4.1": {
+        "provider": "openai",
+        "input_price_per_1k": 0.002,
+        "output_price_per_1k": 0.008,
+        "context_window": 128000,
+        "family": "GPT-4.1",
+    },
+    "o1": {
+        "provider": "openai",
+        "input_price_per_1k": 0.015,
+        "output_price_per_1k": 0.06,
+        "context_window": 200000,
+        "family": "O1",
+    },
+    "o3-mini": {
+        "provider": "openai",
+        "input_price_per_1k": 0.0011,
+        "output_price_per_1k": 0.0044,
+        "context_window": 200000,
+        "family": "O3 Mini",
+    },
+    "deepseek-chat": {
+        "provider": "deepseek",
+        "input_price_per_1k": 0.00027,
+        "output_price_per_1k": 0.0011,
+        "context_window": 128000,
+        "family": "DeepSeek Chat",
+    },
+    "deepseek-reasoner": {
+        "provider": "deepseek",
+        "input_price_per_1k": 0.00055,
+        "output_price_per_1k": 0.00219,
+        "context_window": 128000,
+        "family": "DeepSeek Reasoner",
+    },
+    "mistral-large": {
+        "provider": "mistral",
+        "input_price_per_1k": 0.002,
+        "output_price_per_1k": 0.006,
+        "context_window": 128000,
+        "family": "Mistral Large",
+    },
+    "mistral-small": {
+        "provider": "mistral",
+        "input_price_per_1k": 0.001,
+        "output_price_per_1k": 0.003,
+        "context_window": 128000,
+        "family": "Mistral Small",
+    },
+    "vllm-local": {
+        "provider": "internal",
+        "input_price_per_1k": 0.0,
+        "output_price_per_1k": 0.0,
+        "context_window": 128000,
+        "family": "vLLM Local",
+    },
+    "tgi-local": {
+        "provider": "internal",
+        "input_price_per_1k": 0.0,
+        "output_price_per_1k": 0.0,
+        "context_window": 128000,
+        "family": "TGI Local",
+    },
 }
 
 OPTIMIZER_MODELS = {
@@ -119,7 +182,7 @@ def get_model_info(model_id):
 def calculate_cost(model_id, input_tokens, output_tokens=0):
     model = get_model_info(model_id)
     if not model:
-        return None
+        return 0.0
     input_cost = (input_tokens / 1000) * model["input_price_per_1k"]
     output_cost = (output_tokens / 1000) * model["output_price_per_1k"]
     return round(input_cost + output_cost, 6)

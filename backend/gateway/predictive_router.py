@@ -11,6 +11,10 @@ from backend.governance.rule_engine import RuleEngine
 class PredictiveRouter:
     """Décide la stratégie optimale pour chaque requête LLM."""
 
+    COMPRESS_THRESHOLD = 200
+    INDUSTRIAL_THRESHOLD = 2000
+    BYPASS_THRESHOLD = 50
+
     def __init__(self):
         self.cache_governor = CacheGovernor()
         self.rule_engine = RuleEngine()
@@ -33,14 +37,14 @@ class PredictiveRouter:
             if cached:
                 return {"action": "cache_hit", "cached_response": cached, "savings_percent": 100}
 
-        if policy.get("force_compression") or len(prompt) > 200:
-            profile = "industrial" if len(prompt) > 2000 else "balanced"
+        if policy.get("force_compression") or len(prompt) > self.COMPRESS_THRESHOLD:
+            profile = "industrial" if len(prompt) > self.INDUSTRIAL_THRESHOLD else "balanced"
             return {
                 "action": "compress", "profile": profile,
                 "policy": policy, "cache_key": cache_key,
             }
 
-        if len(prompt) < 50:
+        if len(prompt) < self.BYPASS_THRESHOLD:
             return {"action": "bypass", "reason": "prompt_too_short", "policy": policy}
 
         return {"action": "compress", "profile": "balanced", "policy": policy, "cache_key": cache_key}

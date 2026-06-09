@@ -144,7 +144,7 @@ class MemoryIndex:
                         owner_type=hit.payload.get("owner_type", ""),
                         owner_id=hit.payload.get("owner_id", ""),
                         content=hit.payload.get("content", ""),
-                        embedding=query_vec,
+                        embedding=hit.vector or query_vec,
                         metadata={k: v for k, v in hit.payload.items()
                                   if k not in ("tenant_id", "owner_type", "owner_id", "content")},
                     )

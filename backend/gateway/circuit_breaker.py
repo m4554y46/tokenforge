@@ -36,11 +36,15 @@ class CircuitBreaker:
         return self._state
 
     def allow_request(self) -> bool:
-        s = self.state
+        s = self._state
         if s == CircuitState.CLOSED:
             return True
         if s == CircuitState.HALF_OPEN:
             return self._half_open_calls < self.half_open_max
+        if s == CircuitState.OPEN and time.time() - self._last_failure >= self.recovery_timeout:
+            self._state = CircuitState.HALF_OPEN
+            self._half_open_calls = 0
+            return True
         return False
 
     def record_success(self) -> None:
@@ -74,6 +78,6 @@ class CircuitBreaker:
 
     def status(self) -> Dict[str, Any]:
         return {
-            "name": self.name, "state": self.state.value,
+            "name": self.name, "state": self._state.value,
             "failures": self._failures,
         }

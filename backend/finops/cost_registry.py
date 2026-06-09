@@ -48,13 +48,15 @@ class CostRegistry:
 
     def get_cost_summary(self, tenant_id: str, days: int = 30) -> Dict[str, Any]:
         p = _param()
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
         rows = query_all(
             f"SELECT provider, model, SUM(cost_usd) as total_cost, SUM(input_tokens) as total_input, "
             f"COUNT(*) as requests, AVG(savings_percent) as avg_savings "
             f"FROM prompt_events WHERE tenant_id={p} "
-            f"AND created_at >= datetime('now', '-' || {p} || ' days') "
+            f"AND created_at >= {p} "
             f"GROUP BY provider, model ORDER BY total_cost DESC",
-            (tenant_id, str(days)),
+            (tenant_id, cutoff),
         )
         total = sum(r["total_cost"] or 0 for r in rows)
         return {"total_cost_usd": round(total, 4), "by_model": rows, "period_days": days}

@@ -128,10 +128,10 @@ def _load_state(model_source: str) -> dict:
     safetensors_path = _os.path.join(model_source, "model.safetensors")
     if _os.path.isfile(safetensors_path):
         return _load_safe(safetensors_path, device="cpu")
-    # Fallback: try loading with transformers
-    from transformers import AutoModel
-    dummy = AutoModel.from_pretrained(model_source, trust_remote_code=True)
-    return dummy.state_dict()
+    raise FileNotFoundError(
+        f"KOMPRESS model safetensors not found at {safetensors_path}. "
+        "Run `python -m backend.spc.download_models` to download."
+    )
 
 
 def reset_kompress():

@@ -7,6 +7,7 @@ import threading as _threading
 import time as _time
 import uuid as _uuid
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -49,7 +50,21 @@ from backend.document_router import router as document_router
 from backend.config import get_settings
 
 _settings = get_settings()
-app = FastAPI(title=_settings.APP_NAME, version=_settings.APP_VERSION)
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    # Startup
+    init_db()
+    from backend.core.database_v2 import init_v2_db
+    init_v2_db()
+    yield
+    # Shutdown
+    from backend.core.cache import cache
+    cache.clear()
+
+
+app = FastAPI(title=_settings.APP_NAME, version=_settings.APP_VERSION, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -115,11 +130,7 @@ class TemplateRequest(BaseModel):
     content: str
 
 
-@app.on_event("startup")
-def startup():
-    init_db()
-    from backend.core.database_v2 import init_v2_db
-    init_v2_db()
+
 
 
 @app.get("/api/health")
@@ -222,6 +233,22 @@ def _run_optimize_task(session_id: str, req: OptimizeRequest):
                 )
             except Exception as exc:
                 logger.warning("Failed to save history: %s", exc)
+
+        # Enregistrer l'événement dans FinOps (v2) pour alimenter le dashboard
+        try:
+            from backend.finops.cost_registry import CostRegistry
+            # Prendre le dernier (meilleur) résultat de versions
+            _best_version = versions[-1] if versions else None
+            if _best_version and original_tokens > 0:
+                CostRegistry().record_event(
+                    tenant_id="default", user_id="local",
+                    prompt=req.prompt, model=req.target_model,
+                    compressed=True,
+                    savings_percent=_best_version.get("savings_percent", 0),
+                    profile=_best_version.get("label", "local").lower(),
+                )
+        except Exception as exc:
+            logger.warning("Failed to record FinOps event: %s", exc)
 
         _tasks[session_id].update({
             "progress": 100,

@@ -22,7 +22,7 @@ class CacheGovernor:
 
     def record_request(self, prompt: str, model: str) -> None:
         key = self._freq_key(prompt, model)
-        cache.set(key, (cache.get(key) or 0) + 1, ttl=86400)
+        cache.incr(key, 1)
 
     def record_hit(self, cache_key: str) -> None:
         self._hit_counter[cache_key] += 1

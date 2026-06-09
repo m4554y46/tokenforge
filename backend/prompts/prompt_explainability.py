@@ -25,13 +25,15 @@ class PromptExplainability:
         if fallback:
             reasons.append({
                 "type": "fallback", "why": self.REASONS["fallback"],
-                "gain_usd": 0, "risk": "none — qualité préservée à 100%",
+                "gain_summary": "Qualité préservée à 100%", "gain_usd": 0,
+                "risk": "none",
             })
         else:
             reasons.append({
                 "type": "compression",
                 "why": self.REASONS["compression"],
-                "gain_usd": f"~{savings}% tokens économisés",
+                "gain_summary": f"~{savings}% tokens économisés",
+                "gain_usd": 0,
                 "risk": "low" if savings < 50 else "medium" if savings < 65 else "high",
                 "profile": profile,
                 "techniques": techniques,

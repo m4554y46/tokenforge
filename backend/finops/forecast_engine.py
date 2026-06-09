@@ -11,12 +11,14 @@ class ForecastEngine:
 
     def _daily_costs(self, tenant_id: str, days: int = 90) -> List[Dict]:
         p = _param()
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
         return query_all(
-            f"SELECT DATE(created_at) as day, SUM(cost_usd) as cost, COUNT(*) as requests "
+            f"SELECT SUBSTR(created_at, 1, 10) as day, SUM(cost_usd) as cost, COUNT(*) as requests "
             f"FROM prompt_events WHERE tenant_id={p} "
-            f"AND created_at >= datetime('now', '-' || {p} || ' days') "
-            f"GROUP BY DATE(created_at) ORDER BY day",
-            (tenant_id, str(days)),
+            f"AND created_at >= {p} "
+            f"GROUP BY day ORDER BY day",
+            (tenant_id, cutoff),
         )
 
     def forecast(self, tenant_id: str, horizon: str = "monthly") -> Dict[str, Any]:

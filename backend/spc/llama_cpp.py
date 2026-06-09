@@ -12,8 +12,6 @@ import subprocess
 import time
 from collections import OrderedDict
 from typing import Optional
-from functools import lru_cache
-
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MODEL = "phi-3-mini-4k-instruct-q4.gguf"
@@ -97,7 +95,7 @@ class LlamaCpp:
         temperature: float = 0.1,
         stop: Optional[list] = None,
     ) -> Optional[str]:
-        cache_key = hashlib.md5((prompt + str(max_tokens)).encode()).hexdigest()
+        cache_key = hashlib.md5(f"{prompt}|{max_tokens}|{temperature}|{stop}".encode()).hexdigest()
         cached = self._get_from_cache(cache_key)
         if cached is not None:
             return cached

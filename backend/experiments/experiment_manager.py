@@ -1,7 +1,7 @@
 """Experiment Manager — A/B testing compression et providers."""
 
+import hashlib
 import json
-import random
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -35,7 +35,8 @@ class ExperimentManager:
         exp = self._get(experiment_id)
         if not exp:
             return "a"
-        seed = hash(f"{experiment_id}:{user_id}") % 100
+        digest = hashlib.sha256(f"{experiment_id}:{user_id}".encode()).hexdigest()
+        seed = int(digest[:8], 16) % 100
         return exp["variant_a"] if seed < 50 else exp["variant_b"]
 
     def record_result(
@@ -63,6 +64,14 @@ class ExperimentManager:
     def _get(self, experiment_id: int) -> Optional[Dict]:
         p = _param()
         return query_one(f"SELECT * FROM experiments WHERE id={p}", (experiment_id,))
+
+    def get_variant_name(self, experiment_id: int, user_id: str) -> str:
+        exp = self._get(experiment_id)
+        if not exp:
+            return ""
+        digest = hashlib.sha256(f"{experiment_id}:{user_id}".encode()).hexdigest()
+        seed = int(digest[:8], 16) % 100
+        return exp["variant_a"] if seed < 50 else exp["variant_b"]
 
     def _analyze(self, results: Dict, metric: str) -> Dict[str, Any]:
         analysis = {}

@@ -34,13 +34,17 @@ class MemoryRetriever:
         if user_profile.get("preferences"):
             prefs = user_profile["preferences"]
             if prefs.get("language"):
-                context_lines.append(f"Langue préférée: {prefs['language']}")
+                val = prefs["language"]["value"] if isinstance(prefs["language"], dict) else prefs["language"]
+                context_lines.append(f"Langue préférée: {val}")
             if prefs.get("tone"):
-                context_lines.append(f"Ton: {prefs['tone']}")
+                val = prefs["tone"]["value"] if isinstance(prefs["tone"], dict) else prefs["tone"]
+                context_lines.append(f"Ton: {val}")
             if prefs.get("format"):
-                context_lines.append(f"Format: {prefs['format']}")
+                val = prefs["format"]["value"] if isinstance(prefs["format"], dict) else prefs["format"]
+                context_lines.append(f"Format: {val}")
             if prefs.get("style"):
-                context_lines.append(f"Style: {prefs['style']}")
+                val = prefs["style"]["value"] if isinstance(prefs["style"], dict) else prefs["style"]
+                context_lines.append(f"Style: {val}")
         for item in tenant_knowledge[:10]:
             context_lines.append(f"Terme métier [{item['category']}]: {item['term']} — {item.get('definition', '')}")
         for entry, score in semantic_hits:

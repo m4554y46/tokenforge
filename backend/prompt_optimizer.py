@@ -783,12 +783,13 @@ class OptiTokenOptimizer:
                                 zone=GrayZone.CAUSAL_VALIDATION,
                             )
                             if _meta.get("llm_called") and _refined:
-                                if _mode_key == "aggressive":
-                                    aggressive_prompt = _refined
-                                elif _mode_key == "max":
-                                    max_prompt = _refined
-                                else:
-                                    industrial_prompt = _refined
+                                # CAUSAL_VALIDATION retourne "PASS" ou "FAIL: ..."
+                                # Ne pas remplacer le texte, juste logger si échec
+                                if _refined.startswith("FAIL"):
+                                    logging.warning(
+                                        "Gray zone CAUSAL_VALIDATION %s: %s",
+                                        _mode_key, _refined,
+                                    )
             except Exception as exc:
                 logging.warning("Gray zone refine failed: %s", exc)
 

@@ -62,10 +62,10 @@ class SPC:
         """Run the full SPC pipeline on input text."""
         timer = Timer()
         result = SPCResult(original=text, profile=self.profile.name)
+        phases = self.profile.phases
 
         try:
             with timer:
-                phases = self.profile.phases
                 current = text
 
                 # ── Phase 1: Ingestion ──────────────────────────────

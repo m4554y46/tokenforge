@@ -6,14 +6,21 @@ import { KpiCard } from '../../components/KpiCard';
 export default function FinOpsPage() {
   const [roi, setRoi] = useState<Record<string, number>>({});
   const [forecast, setForecast] = useState<Record<string, unknown>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const h = { 'X-Tenant-ID': 'default', 'X-User-ID': 'portal' };
-    fetch('/api/v2/finops/roi', { headers: h }).then((r) => r.json()).then(setRoi);
-    fetch('/api/v2/finops/forecast', { headers: h }).then((r) => r.json()).then(setForecast);
+    Promise.all([
+      fetch('/api/v2/finops/roi', { headers: h }).then(r => r.json()).then(setRoi).catch(() => setError('Erreur chargement ROI')),
+      fetch('/api/v2/finops/forecast', { headers: h }).then(r => r.json()).then(setForecast).catch(() => setError('Erreur chargement prévisions')),
+    ]).finally(() => setLoading(false));
   }, []);
 
   const monthly = forecast.monthly as Record<string, number> | undefined;
+
+  if (loading) return <div className="text-gray-400">Chargement...</div>;
+  if (error) return <div className="text-red-400">{error}</div>;
 
   return (
     <div>

@@ -26,7 +26,9 @@ class ObservabilityHub:
         tenant_id: str = "", extra: Dict = None,
     ) -> None:
         _counters[f"requests_total{{endpoint={endpoint}}}"] += 1
-        _metrics[f"request_duration_ms{{endpoint={endpoint}}}"] = duration_ms
+        dur_key = f"request_duration_ms{{endpoint={endpoint}}}"
+        prev = _metrics.get(dur_key, 0)
+        _metrics[dur_key] = prev * 0.9 + duration_ms * 0.1  # EMA lissé
         if status >= 400:
             _counters[f"errors_total{{endpoint={endpoint}}}"] += 1
         trace = {
@@ -57,11 +59,24 @@ class ObservabilityHub:
         return _traces[-limit:]
 
     def prometheus_text(self) -> str:
+        def _format_metric(key: str, value: Any, typ: str = "counter") -> str:
+            if "{" in key:
+                name, labels_raw = key.split("{", 1)
+                labels_raw = labels_raw.rstrip("}")
+                parts = []
+                for pair in labels_raw.split(","):
+                    if "=" in pair:
+                        k, v = pair.split("=", 1)
+                        if not v.startswith('"'):
+                            v = f'"{v}"'
+                        parts.append(f'{k}={v}')
+                labels = "{" + ",".join(parts) + "}"
+                return f"tokenforge_{name}{labels} {v}"
+            return f"tokenforge_{key} {v}"
+
         lines = ["# HELP tokenforge_requests_total Total requests", "# TYPE tokenforge_requests_total counter"]
         for k, v in _counters.items():
-            name = k.split("{")[0] if "{" in k else k
-            lines.append(f"tokenforge_{name} {v}")
+            lines.append(_format_metric(k, v, "counter"))
         for k, v in _metrics.items():
-            name = k.split("{")[0] if "{" in k else k
-            lines.append(f"tokenforge_{name} {v}")
+            lines.append(_format_metric(k, v, "gauge"))
         return "\n".join(lines) + "\n"

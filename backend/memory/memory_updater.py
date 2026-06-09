@@ -56,7 +56,6 @@ class MemoryUpdater:
             updates.append(f"model={model}")
         acronyms = re.findall(r"\b[A-Z]{2,6}\b", prompt)
         for acr in set(acronyms[:5]):
-            if len(acr) >= 2:
                 self.tenant_svc.add_term(tenant_id, "acronym", acr, source="inferred")
                 updates.append(f"term:{acr}")
         entry_id = str(uuid.uuid4())

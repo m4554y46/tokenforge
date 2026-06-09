@@ -1,32 +1,32 @@
 """Calcul ROI — coût initial vs optimisé vs coût TokenForge."""
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from backend.config import get_settings
 from backend.core.database_v2 import query_one, _param
-from backend.finops.cost_registry import CostRegistry
 
 
 class ROIEngine:
     """Démontre la valeur économique de TokenForge au DSI."""
 
     def __init__(self):
-        self.cost_registry = CostRegistry()
         self.settings = get_settings()
 
     def calculate(
         self, tenant_id: str, days: int = 30,
-        tokenforge_cost_per_1k: float = None,
+        tokenforge_cost_per_1k: Optional[float] = None,
     ) -> Dict[str, Any]:
+        from datetime import datetime, timedelta
         p = _param()
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
         row = query_one(
             f"SELECT SUM(cost_usd) as total_cost, "
             f"SUM(CASE WHEN compressed=1 THEN cost_usd ELSE 0 END) as optimized_cost, "
             f"SUM(input_tokens) as total_tokens, "
             f"AVG(CASE WHEN compressed=1 THEN savings_percent ELSE 0 END) as avg_savings "
             f"FROM prompt_events WHERE tenant_id={p} "
-            f"AND created_at >= datetime('now', '-' || {p} || ' days')",
-            (tenant_id, str(days)),
+            f"AND created_at >= {p}",
+            (tenant_id, cutoff),
         )
         total_cost = (row or {}).get("total_cost") or 0
         optimized_cost = (row or {}).get("optimized_cost") or 0

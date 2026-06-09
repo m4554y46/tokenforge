@@ -198,19 +198,18 @@ class GrayZoneRouter:
             meta["error"] = f"Unknown zone: {zone}"
             return text, meta
 
-        # Build prompt with chat template tokens for Phi-3 / Qwen2.5 compatibility
+        # Build prompt — utilise le chat template natif du modèle (Phi-3, Qwen2.5, etc.)
         # Sécurité : remplacer les placeholders directement, pas de .format() sur contenu utilisateur
         user_content = zone_cfg["prompt"]
         user_content = user_content.replace("{text}", text)
         user_content = user_content.replace("{original}", original)
         user_content = user_content.replace("{compressed}", text)
-        prompt = (
-            "<|system|>\n" + zone_cfg["system"] + "<|end|>\n"
-            "<|user|>\n" + user_content + "<|end|>\n"
-            "<|assistant|>\n"
-        )
-        result = self.llm.generate(
-            prompt=prompt,
+        messages = [
+            {"role": "system", "content": zone_cfg["system"]},
+            {"role": "user", "content": user_content},
+        ]
+        result = self.llm.chat(
+            messages=messages,
             max_tokens=zone_cfg["max_tokens"],
             temperature=zone_cfg["temperature"],
             stop=zone_cfg["stop"],
@@ -220,32 +219,38 @@ class GrayZoneRouter:
             return text, meta
 
         meta["llm_called"] = True
-        refined = self._parse_refinement(text, result, zone)
+        refined, extra_meta = self._parse_refinement(text, result, zone)
+        meta.update(extra_meta)
         self._set_cache(cache_key, refined)
         return refined, meta
 
-    def _parse_refinement(self, text: str, llm_output: str, zone: GrayZone) -> str:
+    def _parse_refinement(self, text: str, llm_output: str, zone: GrayZone) -> Tuple[str, dict]:
+        extra = {}
         if zone == GrayZone.AMBIGUITY:
-            return llm_output.strip()
+            extra["classification"] = llm_output.strip()
+            return text, extra
         if zone == GrayZone.FINE_PROTECTION:
-            return self._apply_fine_protection(text, llm_output)
+            return self._apply_fine_protection(text, llm_output), extra
         if zone == GrayZone.CAUSAL_VALIDATION:
-            return llm_output.strip()
+            extra["validation"] = llm_output.strip()
+            return text, extra
         if zone == GrayZone.REGISTER:
-            return llm_output.strip()
+            extra["register"] = llm_output.strip()
+            return text, extra
         if zone == GrayZone.REEXPANSION:
-            return llm_output.strip() if len(llm_output) > len(text) * 0.5 else text
-        return llm_output.strip()
+            return (llm_output.strip() if len(llm_output) > len(text) * 0.5 else text), extra
+        return llm_output.strip(), extra
 
     def _apply_fine_protection(self, text: str, llm_output: str) -> str:
-        """Apply token-level keep/remove labels from LLM output."""
+        """Apply token-level keep/remove labels from LLM output, preserving whitespace."""
         try:
             labels = json.loads(llm_output)
             if isinstance(labels, list):
                 remove_words = {item["word"] for item in labels if item.get("label") == "REMOVE"}
-                words = text.split()
-                kept = [w for w in words if w.strip(".,;:!?\"'") not in remove_words]
-                return " ".join(kept)
+                import re
+                parts = re.split(r"(\s+)", text)
+                kept = [p for p in parts if not p.strip() or p.strip(".,;:!?\"'") not in remove_words]
+                return "".join(kept)
         except (json.JSONDecodeError, KeyError, TypeError):
             pass
         return text

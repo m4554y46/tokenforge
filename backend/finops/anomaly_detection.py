@@ -1,6 +1,5 @@
 """Détection d'anomalies de coût."""
 
-import statistics
 from typing import Any, Dict, List
 
 from backend.core.database_v2 import query_all, _param
@@ -10,18 +9,21 @@ class AnomalyDetector:
     """Détecte explosions de coût et dérives comportementales."""
 
     def detect_cost_spikes(self, tenant_id: str, z_threshold: float = 2.5) -> List[Dict]:
+        from datetime import datetime, timedelta
         p = _param()
+        cutoff = (datetime.now() - timedelta(days=30)).isoformat()
         daily = query_all(
-            f"SELECT DATE(created_at) as day, SUM(cost_usd) as cost FROM prompt_events "
-            f"WHERE tenant_id={p} AND created_at >= datetime('now', '-30 days') "
-            f"GROUP BY DATE(created_at) ORDER BY day",
-            (tenant_id,),
+            f"SELECT SUBSTR(created_at, 1, 10) as day, SUM(cost_usd) as cost FROM prompt_events "
+            f"WHERE tenant_id={p} AND created_at >= {p} "
+            f"GROUP BY day ORDER BY day",
+            (tenant_id, cutoff),
         )
         if len(daily) < 5:
             return []
-        costs = [d["cost"] or 0 for d in daily]
-        mean = statistics.mean(costs)
-        stdev = statistics.stdev(costs) if len(costs) > 1 else 0
+        costs = [float(d["cost"] or 0) for d in daily]
+        mean = sum(costs) / len(costs)
+        variance = sum((c - mean) ** 2 for c in costs) / len(costs)
+        stdev = variance ** 0.5 if variance else 0
         anomalies = []
         for d, cost in zip(daily, costs):
             if stdev > 0:
@@ -35,12 +37,14 @@ class AnomalyDetector:
         return anomalies
 
     def detect_user_drift(self, tenant_id: str, multiplier: float = 3.0) -> List[Dict]:
+        from datetime import datetime, timedelta
         p = _param()
+        cutoff = (datetime.now() - timedelta(days=7)).isoformat()
         users = query_all(
             f"SELECT user_id, SUM(cost_usd) as total, COUNT(*) as requests "
-            f"FROM prompt_events WHERE tenant_id={p} AND created_at >= datetime('now', '-7 days') "
+            f"FROM prompt_events WHERE tenant_id={p} AND created_at >= {p} "
             f"GROUP BY user_id",
-            (tenant_id,),
+            (tenant_id, cutoff),
         )
         if len(users) < 2:
             return []

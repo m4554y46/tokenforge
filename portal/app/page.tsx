@@ -5,6 +5,8 @@ import { KpiCard } from '../components/KpiCard';
 
 export default function Dashboard() {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     fetch('/api/v2/dashboard', {
@@ -12,11 +14,15 @@ export default function Dashboard() {
     })
       .then((r) => r.json())
       .then(setData)
-      .catch(console.error);
+      .catch(() => setError('Erreur chargement dashboard'))
+      .finally(() => setLoading(false));
   }, []);
 
   const finops = data?.finops as Record<string, number> | undefined;
   const roi = data?.roi as Record<string, number> | undefined;
+
+  if (loading) return <div className="text-gray-400">Chargement...</div>;
+  if (error) return <div className="text-red-400">{error}</div>;
 
   return (
     <div>
