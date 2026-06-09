@@ -730,7 +730,7 @@ def auto_compress(
             if n_tokens > 512 or text_type_for_kompress:
                 threshold = max(0.25, min(0.75, 1.05 - profile_rate))
                 compressed, _ = compress_with_kompress(text, threshold=threshold)
-                if len(compressed) < len(text) * 0.85:
+                if len(compressed) < len(text) * 0.95:
                     return compressed, None, text_type
     except Exception:
         pass

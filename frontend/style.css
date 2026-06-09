@@ -553,7 +553,7 @@ select option {
   appearance: none;
   width: 36px;
   height: 20px;
-  background: var(--bg-tertiary);
+  background: var(--bg-surface-solid);
   border-radius: 10px;
   border: 1px solid var(--border);
   position: relative;
