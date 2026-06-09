@@ -158,13 +158,15 @@ class LlamaCpp:
         return None
 
     def _generate_cli(self, prompt: str, max_tokens: int, temperature: float, stop: Optional[list]) -> Optional[str]:
+        # Nettoyer les caractères de contrôle du prompt (prévention d'arguments inattendus)
+        safe_prompt = "".join(c if c >= " " or c in "\n\t" else " " for c in prompt)
         cmd = ["llama-cli"]
         if self.model_path:
             cmd.extend(["-m", self.model_path])
         cmd.extend([
             "--temp", str(temperature),
             "-n", str(max_tokens),
-            "-p", prompt,
+            "-p", safe_prompt,
         ])
         if stop:
             cmd.extend(["--stop"] + stop)

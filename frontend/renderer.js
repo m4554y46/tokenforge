@@ -16,8 +16,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   loadDocFormats();
   setupNavigation();
   setupLiveTokenCounting();
+  setupUIEventHandlers();
   checkBackendStatus();
-  setInterval(checkBackendStatus, 10000);
+  window._healthInterval = setInterval(checkBackendStatus, 10000);
 });
 
 async function api(path, options = {}) {
@@ -42,9 +43,10 @@ async function checkBackendStatus() {
     document.getElementById("statusDot").className = "status-dot ready";
     document.getElementById("statusText").textContent = "Backend prêt";
     checkLlmStatus();
-  } catch {
+  } catch (e) {
     document.getElementById("statusDot").className = "status-dot error";
     document.getElementById("statusText").textContent = "Backend indisponible";
+    console.warn("checkBackendStatus:", e);
   }
 }
 
@@ -59,8 +61,8 @@ async function checkLlmStatus() {
       hint.textContent = "\u26A0\uFE0F Aucun LLM local (optionnel)";
       hint.style.color = "var(--text-muted)";
     }
-  } catch {
-    // ignore
+  } catch (e) {
+    console.warn("checkLlmStatus:", e);
   }
 }
 
@@ -232,7 +234,7 @@ async function updateTokenCount() {
       document.getElementById("liveCost").textContent = `$${cost.toFixed(6)}`;
       document.getElementById("liveContext").textContent = `${(modelInfo.context_window / 1000).toFixed(0)}K`;
     }
-  } catch {}
+  } catch (e) { console.warn("updateTokenCount:", e); }
 }
 
 function setupLiveTokenCounting() {
@@ -242,6 +244,112 @@ function setupLiveTokenCounting() {
     debounceTimer = setTimeout(updateTokenCount, 300);
   });
   document.getElementById("targetModel").addEventListener("change", updateTokenCount);
+}
+
+// ===== UI EVENT HANDLERS (migration depuis inline onclick) =====
+function setupUIEventHandlers() {
+  // Template select
+  const templateSelect = document.getElementById("templateSelect");
+  if (templateSelect) templateSelect.addEventListener("change", loadTemplate);
+
+  // Optimizer provider
+  const optProvider = document.getElementById("optimizerProvider");
+  if (optProvider) optProvider.addEventListener("change", onOptimizerChange);
+
+  // Optimize button (id already exists)
+  const optBtn = document.getElementById("optimizeBtn");
+  if (optBtn) optBtn.addEventListener("click", optimize);
+
+  // Configurer key button
+  const keyConfigBtn = document.getElementById("keyConfigBtn");
+  if (keyConfigBtn) keyConfigBtn.addEventListener("click", showKeyModal);
+
+  // Clear prompt
+  const clearBtn = document.getElementById("clearPromptBtn");
+  if (clearBtn) clearBtn.addEventListener("click", clearPrompt);
+
+  // Save as template
+  const saveTemplateBtn = document.getElementById("saveTemplateBtn");
+  if (saveTemplateBtn) saveTemplateBtn.addEventListener("click", saveCurrentPromptAsTemplate);
+
+  // Clear history
+  const clearHistBtn = document.getElementById("clearHistoryBtn");
+  if (clearHistBtn) clearHistBtn.addEventListener("click", clearHistory);
+
+  // Template modal buttons
+  const addTmplBtn = document.getElementById("addTemplateBtn");
+  if (addTmplBtn) addTmplBtn.addEventListener("click", showAddTemplateModal);
+  const closeTmplBtn = document.getElementById("closeTemplateModalBtn");
+  if (closeTmplBtn) closeTmplBtn.addEventListener("click", closeTemplateModal);
+  const saveTmplBtn = document.getElementById("saveTemplateModalBtn");
+  if (saveTmplBtn) saveTmplBtn.addEventListener("click", saveTemplate);
+
+  // Key modal buttons
+  const closeKeyBtn = document.getElementById("closeKeyModalBtn");
+  if (closeKeyBtn) closeKeyBtn.addEventListener("click", closeKeyModal);
+  const saveKeyBtn = document.getElementById("saveKeyModalBtn");
+  if (saveKeyBtn) saveKeyBtn.addEventListener("click", saveKeyFromModal);
+
+  // Key save/delete buttons (by data-provider)
+  document.querySelectorAll(".key-save-btn").forEach((btn) => {
+    btn.addEventListener("click", () => saveKey(btn.dataset.provider));
+  });
+  document.querySelectorAll(".key-del-btn").forEach((btn) => {
+    btn.addEventListener("click", () => deleteKey(btn.dataset.provider));
+  });
+
+  // Doc dropzone
+  const dropzone = document.getElementById("docDropzone");
+  if (dropzone) {
+    dropzone.addEventListener("dragover", (e) => e.preventDefault());
+    dropzone.addEventListener("drop", onDocDrop);
+  }
+
+  // Doc file input
+  const docInput = document.getElementById("docFileInput");
+  if (docInput) docInput.addEventListener("change", onDocFileSelect);
+
+  // Doc file picker button
+  const docPicker = document.getElementById("docFilePickerBtn");
+  if (docPicker) docPicker.addEventListener("click", () => document.getElementById("docFileInput").click());
+
+  // Compress doc button
+  const compressDocBtn = document.getElementById("compressDocBtn");
+  if (compressDocBtn) compressDocBtn.addEventListener("click", compressDoc);
+
+  // Doc compressed actions
+  const copyDocBtn = document.getElementById("copyDocCompressedBtn");
+  if (copyDocBtn) copyDocBtn.addEventListener("click", copyDocCompressed);
+  const sendDocBtn = document.getElementById("sendDocToOptimizerBtn");
+  if (sendDocBtn) sendDocBtn.addEventListener("click", sendDocToOptimizer);
+
+  // Restart backend
+  const restartBtn = document.getElementById("btnRestart");
+  if (restartBtn) restartBtn.addEventListener("click", restartBackend);
+
+  // Recent list delegation
+  const recentList = document.getElementById("recentList");
+  if (recentList) {
+    recentList.addEventListener("click", (e) => {
+      const item = e.target.closest(".recent-item");
+      if (item) {
+        const view = document.querySelector('[data-view="optimizer"]');
+        if (view) view.click();
+      }
+    });
+  }
+
+  // Version detail delegation (copier / utiliser)
+  const versionDetail = document.getElementById("versionDetail");
+  if (versionDetail) {
+    versionDetail.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-action]");
+      if (!btn) return;
+      const idx = parseInt(btn.dataset.index, 10);
+      if (btn.dataset.action === "copy") copyVersion(idx);
+      if (btn.dataset.action === "use") useVersion(idx);
+    });
+  }
 }
 
 // ===== TEMPLATES =====
@@ -288,7 +396,7 @@ async function loadTemplates() {
             document.querySelector('[data-view="optimizer"]').click();
             showToast("Template chargé", "info");
           }
-        } catch {}
+        } catch (e) { console.warn("use template:", e); }
       });
 
       div.querySelector(".del-template-btn").addEventListener("click", async () => {
@@ -300,7 +408,7 @@ async function loadTemplates() {
       opt.textContent = t.name;
       select.appendChild(opt);
     });
-  } catch {}
+  } catch (e) { console.warn("loadTemplates:", e); }
 }
 
 function loadTemplate() {
@@ -320,7 +428,7 @@ async function fetchAndUseTemplate(id) {
       updateTokenCount();
       document.querySelector('[data-view="optimizer"]').click();
     }
-  } catch {}
+  } catch (e) { console.warn("fetchAndUseTemplate:", e); }
 }
 
 function showAddTemplateModal() {
@@ -361,7 +469,7 @@ async function deleteTemplate(id) {
     await api(`/api/templates/${id}`, { method: "DELETE" });
     showToast("Template supprimé", "info");
     await loadTemplates();
-  } catch {}
+  } catch (e) { console.warn("deleteTemplate:", e); }
 }
 
 // ===== OPTIMIZER =====
@@ -423,7 +531,10 @@ async function optimize() {
     // Poll progress
     let done = false;
     let startTime = Date.now();
+    let attempts = 0;
     while (!done) {
+      attempts++;
+      if (attempts > 1500) throw new Error("Timeout: l'optimisation a pris trop de temps");
       await new Promise(r => setTimeout(r, 400));
       const prog = await api(`/api/progress/${session_id}`);
 
@@ -434,12 +545,12 @@ async function optimize() {
       document.getElementById("progressPhase").textContent =
         _PHASE_LABELS[phase] || phase || "Optimisation...";
 
-      // ETA
-      if (pct > 0 && pct < 100) {
+      // ETA (min pct = 5 pour éviter divisions par zéro)
+      if (pct >= 5 && pct < 100) {
         const elapsed = (Date.now() - startTime) / 1000;
         const eta = Math.round((elapsed / pct) * (100 - pct));
         document.getElementById("progressEta").textContent =
-          eta > 0 ? `~${eta}s restantes` : "";
+          eta > 0 ? `~${Math.min(eta, 3600)}s restantes` : "";
       }
 
       if (pct >= 100) {
@@ -494,12 +605,12 @@ function renderVersions() {
     const badgeClass = v.label?.toLowerCase() || "";
     pill.innerHTML = `${escapeHtml(v.label || "")} (-${v.savings_percent || 0}%)`;
     pill.setAttribute("data-tooltip", `Version ${v.label || ""} — économie de ${v.savings_percent || 0}%. Cliquez pour voir les détails.`);
-    pill.onclick = () => {
+    pill.addEventListener("click", () => {
       currentVersionIndex = i;
       document.querySelectorAll(".pill").forEach((p) => p.classList.remove("active"));
       pill.classList.add("active");
       renderVersionDetail(i);
-    };
+    });
     if (i === 1) {
       // Mark balanced as "popular"
       pill.style.borderColor = "var(--accent-green)";
@@ -543,8 +654,8 @@ function renderVersionDetail(index) {
         ${changes.map((c) => `<span class="change-tag">${escapeHtml(c.description || c)}</span>`).join("")}
       </div>
       <div class="version-actions">
-        <button class="btn btn-primary btn-sm" onclick="copyVersion(${index})" data-tooltip="Copie le texte optimisé dans le presse-papier">Copier</button>
-        <button class="btn btn-secondary btn-sm" onclick="useVersion(${index})" data-tooltip="Remplace le prompt de l'éditeur par cette version">Utiliser cette version</button>
+        <button class="btn btn-primary btn-sm" data-action="copy" data-index="${index}" data-tooltip="Copie le texte optimisé dans le presse-papier">Copier</button>
+        <button class="btn btn-secondary btn-sm" data-action="use" data-index="${index}" data-tooltip="Remplace le prompt de l'éditeur par cette version">Utiliser cette version</button>
       </div>
     </div>
   `;
@@ -583,7 +694,7 @@ async function loadKeys() {
         status.className = `key-status ${k.key_masked !== "****" ? "configured" : "missing"}`;
       }
     });
-  } catch (err) { console.warn("Failed to load keys:", err); }
+        } catch (err) { console.warn("loadKeys:", err); }
 }
 
 async function saveKey(provider, keyValue) {
@@ -612,7 +723,7 @@ async function deleteKey(provider) {
     showToast(`Clé ${provider} supprimée`, "info");
     await loadKeys();
     updateKeyStatus(provider);
-  } catch (err) { console.warn("Failed to delete key:", err); }
+  } catch (err) { console.warn("deleteKey:", err); }
 }
 
 // ===== COST COMPARISON (merged from Simulator) =====
@@ -735,7 +846,7 @@ async function loadHistory() {
       });
     });
 
-  } catch {}
+  } catch (e) { console.warn("loadHistory:", e); }
 }
 
 async function deleteHistoryEntry(id) {
@@ -743,7 +854,7 @@ async function deleteHistoryEntry(id) {
     await api(`/api/history/${id}`, { method: "DELETE" });
     showToast("Entrée supprimée", "info");
     await loadHistory();
-  } catch {}
+  } catch (e) { console.warn("deleteHistoryEntry:", e); }
 }
 
 async function clearHistory() {
@@ -754,7 +865,7 @@ async function clearHistory() {
     }
     showToast("Historique effacé", "info");
     await loadHistory();
-  } catch {}
+  } catch (e) { console.warn("clearHistory:", e); }
 }
 
 function saveCurrentPromptAsTemplate() {
@@ -772,6 +883,10 @@ function saveCurrentPromptAsTemplate() {
 // ===== TOASTS =====
 function showToast(message, type = "info") {
   const container = document.getElementById("toastContainer");
+  // Limiter à 5 toasts visibles
+  while (container.children.length >= 5) {
+    container.removeChild(container.firstChild);
+  }
   const toast = document.createElement("div");
   toast.className = `toast ${type}`;
   toast.textContent = message;
@@ -801,8 +916,9 @@ async function restartBackend() {
   try {
     await api("/api/restart", { method: "POST" });
     adminLog("info", "API a r\u00E9pondu, attente du retour...");
-  } catch {
-    adminLog("info", "API d\u00E9connect\u00E9e, attente du retour...");
+  } catch (e) {
+    adminLog("info", "API déconnectée, attente du retour...");
+    console.warn("restartBackend:", e);
   }
 
   msg.textContent = "Attente du red\u00E9marrage...";
@@ -819,7 +935,8 @@ async function restartBackend() {
         btn.disabled = false;
         setTimeout(() => { status.style.display = "none"; }, 3000);
       }
-    } catch {
+    } catch (e) {
+      console.warn("restartBackend polling:", e);
       if (attempts > 30) {
         clearInterval(poll);
         adminLog("error", "Le service n\u2019a pas red\u00E9marr\u00E9");
@@ -896,7 +1013,7 @@ function renderModeBreakdown(modes) {
     return;
   }
   const total = modes.reduce((s, m) => s + m.count, 0);
-  const colors = { Light: "#818cf8", Balanced: "#fbbf24", Agressive: "#ef4444" };
+  const colors = { Light: "#818cf8", Balanced: "#fbbf24", Aggressive: "#ef4444" };
   container.innerHTML = modes.map(m => {
     const pct = total > 0 ? Math.round((m.count / total) * 100) : 0;
     return `<div class="mode-item" data-tooltip="Mode ${m.version} : ${m.count} utilisations, économie moyenne ${m.avg_savings || 0}%">
@@ -915,7 +1032,7 @@ function renderRecent(items) {
   container.innerHTML = items.map(i => {
     const modeClass = (i.version || "").toLowerCase();
     const preview = (i.original_preview || "").slice(0, 50);
-    return `<div class="recent-item" onclick="document.getElementById('view-optimizer').click();">
+    return `<div class="recent-item" data-view="optimizer">
       <span class="recent-mode ${modeClass}">${i.version || "?"}</span>
       <span class="recent-text">${preview}...</span>
       <span class="recent-savings">${i.savings_percent || 0}%</span>
@@ -923,17 +1040,7 @@ function renderRecent(items) {
   }).join("");
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  const navItems = document.querySelectorAll(".nav-item");
-  navItems.forEach(item => {
-    item.addEventListener("click", () => {
-      setTimeout(() => {
-        if (item.dataset.view === "admin") loadDashboard();
-        if (item.dataset.view === "history") loadHistory();
-      }, 100);
-    });
-  });
-});
+
 
 // ===== DOCUMENTS =====
 let _currentDocData = null;
@@ -943,7 +1050,7 @@ async function loadDocFormats() {
     const data = await api("/api/document/formats");
     const badge = document.getElementById("docFormatsBadge");
     if (badge) badge.textContent = (data.formats || []).length + " formats";
-  } catch (_) { console.warn("Failed to load document formats", _); }
+  } catch (_) { console.warn("loadDocFormats:", _); }
 }
 
 function onDocDrop(e) {
@@ -1035,7 +1142,10 @@ async function compressDoc() {
 
     let done = false;
     const startTime = Date.now();
+    let docAttempts = 0;
     while (!done) {
+      docAttempts++;
+      if (docAttempts > 1500) throw new Error("Timeout: la compression a pris trop de temps");
       await new Promise(r => setTimeout(r, 400));
       const prog = await api(`/api/document/progress/${session_id}`);
 

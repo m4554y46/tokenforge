@@ -198,9 +198,12 @@ class GrayZoneRouter:
             meta["error"] = f"Unknown zone: {zone}"
             return text, meta
 
-        prompt_vars = {"text": text, "original": original, "compressed": text}
         # Build prompt with chat template tokens for Phi-3 / Qwen2.5 compatibility
-        user_content = zone_cfg["prompt"].format(**prompt_vars)
+        # Sécurité : remplacer les placeholders directement, pas de .format() sur contenu utilisateur
+        user_content = zone_cfg["prompt"]
+        user_content = user_content.replace("{text}", text)
+        user_content = user_content.replace("{original}", original)
+        user_content = user_content.replace("{compressed}", text)
         prompt = (
             "<|system|>\n" + zone_cfg["system"] + "<|end|>\n"
             "<|user|>\n" + user_content + "<|end|>\n"

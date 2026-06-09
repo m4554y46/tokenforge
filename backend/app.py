@@ -51,7 +51,6 @@ app = FastAPI(title="TokenForge API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -434,23 +433,24 @@ def remove_template(template_id: int):
 def restart_api():
     def _restart():
         import subprocess as _sp
-        pid = str(os.getpid())
+        import time as _t
+        pid = os.getpid()
+        py = sys.executable
         base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        py = sys.executable.replace("\\", "\\\\")
-        code = (
-            "import subprocess,time,os\n"
-            f"time.sleep(0.5)\n"
-            f"subprocess.run(['taskkill','/F','/PID','{pid}'])\n"
-            "time.sleep(0.5)\n"
-            f"subprocess.Popen([r'{py}','-m','uvicorn','backend.app:app','--host','127.0.0.1','--port','8765'],cwd=r'{base}')\n"
-        )
-        _sp.Popen([sys.executable, '-c', code])
+        _t.sleep(0.5)
+        _sp.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+        _t.sleep(0.5)
+        _sp.Popen([py, "-m", "uvicorn", "backend.app:app", "--host", "127.0.0.1", "--port", "8765"], cwd=base)
 
     _threading.Thread(target=_restart, daemon=True).start()
     return {"status": "restarting"}
 
 
 app.include_router(document_router)
+
+# ── Proxy reseau transparent OpenAI ─────────────────────
+from backend.middleware.proxy import router as proxy_router
+app.include_router(proxy_router)
 
 _frontend_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
 app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")

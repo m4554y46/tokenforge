@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' http://127.0.0.1:8765; img-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'self'; object-src 'none';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' http://127.0.0.1:8765; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'self'; object-src 'none';">
   <title>TokenForge - Prompt Optimizer</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -74,7 +74,7 @@
                 </div>
 
                 <div class="template-quick">
-                  <select id="templateSelect" onchange="loadTemplate()" data-tooltip="Sélectionnez un template pré-enregistré pour le charger dans l'éditeur">
+                  <select id="templateSelect" data-tooltip="Sélectionnez un template pré-enregistré pour le charger dans l'éditeur">
                     <option value="">-- Charger un template --</option>
                   </select>
                 </div>
@@ -86,7 +86,7 @@
                   </div>
                   <div class="control-group">
                     <label class="label-tip" data-tooltip="Moteur d'optimisation : local (gratuit, rapide) ou via API LLM (meilleure qualité)">Optimisé par</label>
-                    <select id="optimizerProvider" onchange="onOptimizerChange()">
+                    <select id="optimizerProvider">
                       <option value="">Optimisation locale (gratuit)</option>
                       <option value="openai">OpenAI</option>
                       <option value="anthropic">Anthropic</option>
@@ -121,10 +121,10 @@
                     <span id="keyStatusIcon">&#128274;</span>
                     <span id="keyStatusText">Clé non configurée</span>
                   </span>
-                  <button class="btn btn-secondary btn-sm" onclick="showKeyModal()" data-tooltip="Ouvre la configuration de la clé API pour le fournisseur sélectionné.">Configurer</button>
+                  <button class="btn btn-secondary btn-sm" id="keyConfigBtn" data-tooltip="Ouvre la configuration de la clé API pour le fournisseur sélectionné.">Configurer</button>
                 </div>
 
-                <textarea id="promptInput" placeholder="Collez votre prompt ici..." oninput="onPromptChange()" data-tooltip="Saisissez le prompt à optimiser. La compression s'applique en local et préserve le code, LaTeX, URLs et templates."></textarea>
+                <textarea id="promptInput" placeholder="Collez votre prompt ici..." data-tooltip="Saisissez le prompt à optimiser. La compression s'applique en local et préserve le code, LaTeX, URLs et templates."></textarea>
 
                 <div class="token-info">
                   <div class="token-info-item" data-tooltip="Nombre de tokens dans le prompt actuel. 1 token ≈ 0.75 mot en anglais.">
@@ -142,11 +142,11 @@
                 </div>
 
                 <div class="prompt-actions">
-                  <button class="btn btn-primary" id="optimizeBtn" onclick="optimize()" data-tooltip="Lance l'optimisation du prompt. Produit 5 versions : Light → Industrial.">
+                  <button class="btn btn-primary" id="optimizeBtn" data-tooltip="Lance l'optimisation du prompt. Produit 5 versions : Light → Industrial.">
                     &#9889; Optimiser
                   </button>
-                  <button class="btn btn-secondary" onclick="saveCurrentPromptAsTemplate()" data-tooltip="Enregistre le prompt actuel comme template réutilisable.">&#128203; Template</button>
-                  <button class="btn btn-secondary" onclick="clearPrompt()" data-tooltip="Efface le champ de saisie et réinitialise l'affichage.">&#8634; Reset</button>
+                  <button class="btn btn-secondary" id="saveTemplateBtn" data-tooltip="Enregistre le prompt actuel comme template réutilisable.">&#128203; Template</button>
+                  <button class="btn btn-secondary" id="clearPromptBtn" data-tooltip="Efface le champ de saisie et réinitialise l'affichage.">&#8634; Reset</button>
                 </div>
                 <div class="llm-toggle-row">
                   <label class="toggle-label" for="refineLlmToggle">
@@ -207,7 +207,7 @@
           <div class="card">
             <div class="card-header">
               <h3 data-tooltip="Historique des prompts optimisés. Chaque entrée montre le taux d'économie et la version utilisée.">Historique des optimisations</h3>
-              <button class="btn btn-danger btn-sm" onclick="clearHistory()" data-tooltip="Supprime tout l'historique. Action irréversible.">Tout effacer</button>
+              <button class="btn btn-danger btn-sm" id="clearHistoryBtn" data-tooltip="Supprime tout l'historique. Action irréversible.">Tout effacer</button>
             </div>
             <div class="history-list" id="historyList">
               <div class="empty-state">
@@ -235,8 +235,8 @@
                 <div class="key-value-display" id="keyDisplay-openai">sk-****</div>
                 <div class="key-input-group">
                   <input type="password" id="keyInput-openai" placeholder="sk-..." data-tooltip="Entrez votre clé API OpenAI (commence par sk-...). Stockée et chiffrée localement.">
-                  <button class="btn btn-primary btn-sm" onclick="saveKey('openai')" data-tooltip="Sauvegarde la clé API de manière sécurisée.">Sauver</button>
-                  <button class="btn btn-danger btn-sm" onclick="deleteKey('openai')" data-tooltip="Supprime la clé API enregistrée.">X</button>
+                  <button class="btn btn-primary btn-sm key-save-btn" data-provider="openai" data-tooltip="Sauvegarde la clé API de manière sécurisée.">Sauver</button>
+                  <button class="btn btn-danger btn-sm key-del-btn" data-provider="openai" data-tooltip="Supprime la clé API enregistrée.">X</button>
                 </div>
               </div>
               <div class="key-card">
@@ -247,8 +247,8 @@
                 <div class="key-value-display" id="keyDisplay-anthropic">sk-ant-****</div>
                 <div class="key-input-group">
                   <input type="password" id="keyInput-anthropic" placeholder="sk-ant-..." data-tooltip="Entrez votre clé API Anthropic (commence par sk-ant-...).">
-                  <button class="btn btn-primary btn-sm" onclick="saveKey('anthropic')" data-tooltip="Sauvegarde la clé API de manière sécurisée.">Sauver</button>
-                  <button class="btn btn-danger btn-sm" onclick="deleteKey('anthropic')" data-tooltip="Supprime la clé API enregistrée.">X</button>
+                  <button class="btn btn-primary btn-sm key-save-btn" data-provider="anthropic" data-tooltip="Sauvegarde la clé API de manière sécurisée.">Sauver</button>
+                  <button class="btn btn-danger btn-sm key-del-btn" data-provider="anthropic" data-tooltip="Supprime la clé API enregistrée.">X</button>
                 </div>
               </div>
               <div class="key-card">
@@ -259,8 +259,8 @@
                 <div class="key-value-display" id="keyDisplay-google">AIza****</div>
                 <div class="key-input-group">
                   <input type="password" id="keyInput-google" placeholder="AIza..." data-tooltip="Entrez votre clé API Google (AIza...).">
-                  <button class="btn btn-primary btn-sm" onclick="saveKey('google')" data-tooltip="Sauvegarde la clé API de manière sécurisée.">Sauver</button>
-                  <button class="btn btn-danger btn-sm" onclick="deleteKey('google')" data-tooltip="Supprime la clé API enregistrée.">X</button>
+                  <button class="btn btn-primary btn-sm key-save-btn" data-provider="google" data-tooltip="Sauvegarde la clé API de manière sécurisée.">Sauver</button>
+                  <button class="btn btn-danger btn-sm key-del-btn" data-provider="google" data-tooltip="Supprime la clé API enregistrée.">X</button>
                 </div>
               </div>
             </div>
@@ -272,7 +272,7 @@
           <div class="card">
             <div class="card-header">
               <h3 data-tooltip="Templates de prompts réutilisables. Créez, chargez et gérez vos modèles ici.">Templates prêts à l'emploi</h3>
-              <button class="btn btn-primary btn-sm" onclick="showAddTemplateModal()" data-tooltip="Créez un nouveau template de prompt personnalisé.">+ Nouveau</button>
+              <button class="btn btn-primary btn-sm" id="addTemplateBtn" data-tooltip="Créez un nouveau template de prompt personnalisé.">+ Nouveau</button>
             </div>
             <div class="templates-grid" id="templatesGrid">
               <div class="empty-state">
@@ -293,11 +293,11 @@
                 <h3 data-tooltip="Importez un fichier (PDF, DOCX, PPTX, XLSX, TXT, MD, etc.) pour l'analyser et le compresser.">&#128196; Importer un document</h3>
                 <span class="badge" id="docFormatsBadge"></span>
               </div>
-                <div class="doc-dropzone" id="docDropzone" ondragover="event.preventDefault()" ondrop="onDocDrop(event)" data-tooltip="Glissez-déposez votre fichier ici, ou cliquez pour parcourir. 12 formats supportés.">
+                <div class="doc-dropzone" id="docDropzone" data-tooltip="Glissez-déposez votre fichier ici, ou cliquez pour parcourir. 12 formats supportés.">
                   <div class="dropzone-icon">&#128196;</div>
                   <p>Déposer un fichier ici ou</p>
-                  <input type="file" id="docFileInput" onchange="onDocFileSelect()" style="display:none">
-                  <button class="btn btn-primary btn-sm" onclick="document.getElementById('docFileInput').click()">Choisir un fichier</button>
+                  <input type="file" id="docFileInput" style="display:none">
+                  <button class="btn btn-primary btn-sm" id="docFilePickerBtn">Choisir un fichier</button>
                   <p class="dropzone-hint">Formats supportés: .docx, .pdf, .pptx, .xlsx, .txt, .md, .odt, .html, .csv, .json, .xml, .rtf</p>
                 </div>
               <div id="docUploadProgress" style="display:none;padding:12px;">
@@ -363,7 +363,7 @@
                     <option value="academic">Academic</option>
                   </select>
                 </div>
-                <button class="btn btn-primary" onclick="compressDoc()" data-tooltip="Re-compresse le document avec les paramètres sélectionnés (mode + catégorie).">
+                <button class="btn btn-primary" id="compressDocBtn" data-tooltip="Re-compresse le document avec les paramètres sélectionnés (mode + catégorie).">
                   &#9889; Compresser
                 </button>
               </div>
@@ -392,8 +392,8 @@
                   <div class="card doc-panel" data-tooltip="Version compressée du document. Copiez-la ou envoyez-la dans l'optimiseur.">
                     <div class="card-header">
                       <h3>Compressé</h3>
-                      <button class="btn btn-primary btn-sm" onclick="copyDocCompressed()" data-tooltip="Copie le texte compressé dans le presse-papier">Copier</button>
-                      <button class="btn btn-secondary btn-sm" onclick="sendDocToOptimizer()" data-tooltip="Envoie le texte compressé vers l'Optimizer pour optimisation avancée">&#9889; Optimiser</button>
+                      <button class="btn btn-primary btn-sm" id="copyDocCompressedBtn" data-tooltip="Copie le texte compressé dans le presse-papier">Copier</button>
+                      <button class="btn btn-secondary btn-sm" id="sendDocToOptimizerBtn" data-tooltip="Envoie le texte compressé vers l'Optimizer pour optimisation avancée">&#9889; Optimiser</button>
                     </div>
                     <div class="doc-panel-content" id="docCompressedPreview"></div>
                   </div>
@@ -451,7 +451,7 @@
               </div>
               <div class="card" style="border:1px solid #ff444444;" data-tooltip="Redémarrez le service backend en cas de problème de connexion.">
                 <div class="card-header"><h3>&#9881; Service</h3></div>
-                <button class="btn btn-danger" id="btnRestart" onclick="restartBackend()" style="width:100%;padding:12px;font-size:16px;font-weight:bold;" data-tooltip="Redémarre le backend FastAPI (port 8765). Utile après une mise à jour.">
+                <button class="btn btn-danger" id="btnRestart" style="width:100%;padding:12px;font-size:16px;font-weight:bold;" data-tooltip="Redémarre le backend FastAPI (port 8765). Utile après une mise à jour.">
                   &#8635; RESTART
                 </button>
                 <div id="restartStatus" style="display:none;margin-top:8px;padding:8px;background:var(--bg-surface-solid);border-radius:8px;text-align:center;">
@@ -479,8 +479,8 @@
       <input type="password" id="keyModalInput" placeholder="Entrez votre clé API" style="margin-bottom:8px;" data-tooltip="La clé ne quitte jamais votre machine. Stockée chiffrée dans la base locale.">
       <p style="font-size:12px;color:var(--text-muted);">La clé est stockée localement et chiffrée.</p>
       <div class="modal-actions">
-        <button class="btn btn-secondary" onclick="closeKeyModal()">Annuler</button>
-        <button class="btn btn-primary" onclick="saveKeyFromModal()">Sauvegarder</button>
+        <button class="btn btn-secondary" id="closeKeyModalBtn">Annuler</button>
+        <button class="btn btn-primary" id="saveKeyModalBtn">Sauvegarder</button>
       </div>
     </div>
   </div>
@@ -501,8 +501,8 @@
       </div>
       <textarea id="templateContentInput" placeholder="Contenu du template..." style="min-height:150px;" data-tooltip="Texte du template. Utilisez {variables} pour les parties changeantes."></textarea>
       <div class="modal-actions">
-        <button class="btn btn-secondary" onclick="closeTemplateModal()">Annuler</button>
-        <button class="btn btn-primary" onclick="saveTemplate()">Créer</button>
+        <button class="btn btn-secondary" id="closeTemplateModalBtn">Annuler</button>
+        <button class="btn btn-primary" id="saveTemplateModalBtn">Créer</button>
       </div>
     </div>
   </div>
