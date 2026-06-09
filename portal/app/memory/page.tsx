@@ -46,17 +46,51 @@ export default function MemoryPage() {
   return (
     <div>
       <h2 className="text-2xl font-bold mb-6">Memory Center</h2>
+      <p className="text-sm text-gray-500 mb-6">
+        Le Memory Center stocke deux types d'information : les préférences utilisateur (comment l'utilisateur
+        aime ses réponses) et la connaissance tenant (le vocabulaire métier de l'entreprise).
+        Ces données sont injectées automatiquement dans les prompts pour personnaliser les réponses LLM.
+      </p>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-        <KpiCard label="Préférences utilisateur" value={String(prefCount)} />
-        <KpiCard label="Confiance moyenne" value={`${confidenceAvg}%`} />
-        <KpiCard label="Termes connaissance" value={String(knowledge.length)} />
-        <KpiCard label="Termes validés" value={String(validatedCount)} />
+        <div>
+          <KpiCard label="Préférences utilisateur" value={String(prefCount)} />
+          <p className="text-xs text-gray-600 mt-1">
+            Paramètres personnels (langue, ton, format, modèle favori).
+            Sont appris automatiquement ou définis manuellement.
+          </p>
+        </div>
+        <div>
+          <KpiCard label="Confiance moyenne" value={`${confidenceAvg}%`} />
+          <p className="text-xs text-gray-600 mt-1">
+            Niveau de certitude moyen des préférences. Une préférence définie manuellement
+            a une confiance de 100% ; une préférence inférée a une confiance moindre.
+          </p>
+        </div>
+        <div>
+          <KpiCard label="Termes connaissance" value={String(knowledge.length)} />
+          <p className="text-xs text-gray-600 mt-1">
+            Mots et définitions spécifiques au métier de l'entreprise.
+            Permet au LLM de comprendre le vocabulaire interne.
+          </p>
+        </div>
+        <div>
+          <KpiCard label="Termes validés" value={String(validatedCount)} />
+          <p className="text-xs text-gray-600 mt-1">
+            Termes vérifiés manuellement comme corrects. Un terme non validé
+            (jaune) n'est pas encore confirmé par un humain.
+          </p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <section>
-          <h3 className="text-lg font-semibold mb-3">Préférences utilisateur</h3>
+          <h3 className="text-lg font-semibold mb-2">Préférences utilisateur</h3>
+          <p className="text-xs text-gray-500 mb-3">
+            Chaque préférence a une valeur, un score de confiance (0-100%),
+            une source (manuelle ou inférée), et une date de mise à jour.
+            Ces préférences sont injectées dans le contexte de chaque appel LLM.
+          </p>
           <div className="space-y-2">
             {Object.entries(prefs).map(([key, p]: [string, any]) => (
               <div key={key} className="bg-gray-900 border border-gray-800 rounded-lg p-4">
@@ -75,13 +109,21 @@ export default function MemoryPage() {
               </div>
             ))}
             {prefCount === 0 && (
-              <p className="text-gray-500 text-sm">Aucune préférence enregistrée.</p>
+              <p className="text-gray-500 text-sm">
+                Aucune préférence enregistrée. Les préférences sont créées automatiquement
+                quand vous utilisez le service.
+              </p>
             )}
           </div>
         </section>
 
         <section>
-          <h3 className="text-lg font-semibold mb-3">Connaissance tenant</h3>
+          <h3 className="text-lg font-semibold mb-2">Connaissance tenant</h3>
+          <p className="text-xs text-gray-500 mb-3">
+            Base de connaissances métier de l'entreprise. Les termes sont organisés par catégorie
+            (acronymes, terminologie, types de documents, politiques internes).
+            Un terme validé (vert) a été confirmé par un humain.
+          </p>
           <div className="space-y-3">
             {categories.map(cat => (
               <div key={cat}>
@@ -97,7 +139,7 @@ export default function MemoryPage() {
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{k.term}</span>
                         {k.validated ? (
-                          <span className="text-xs text-green-400">✓ validé</span>
+                          <span className="text-xs text-green-400">validé</span>
                         ) : (
                           <span className="text-xs text-yellow-400">en attente</span>
                         )}
@@ -111,7 +153,10 @@ export default function MemoryPage() {
               </div>
             ))}
             {knowledge.length === 0 && (
-              <p className="text-gray-500 text-sm">Aucune connaissance enregistrée.</p>
+              <p className="text-gray-500 text-sm">
+                Aucune connaissance enregistrée. Les termes sont ajoutés automatiquement
+                via l'apprentissage des interactions ou manuellement via l'API.
+              </p>
             )}
           </div>
         </section>

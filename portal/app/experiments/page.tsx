@@ -32,29 +32,58 @@ export default function ExperimentsPage() {
   return (
     <div>
       <h2 className="text-2xl font-bold mb-6">A/B Experiments</h2>
+      <p className="text-sm text-gray-500 mb-6">
+        Les tests A/B comparent deux variantes (modèle, configuration, fournisseur) pour déterminer
+        laquelle est la plus performante sur une métrique donnée. La métrique peut être le <strong>coût</strong>
+        (le moins cher gagne) ou la <strong>qualité</strong> (le mieux noté gagne).
+        Les utilisateurs sont répartis aléatoirement entre les deux variantes (50/50).
+      </p>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-        <KpiCard label="Total expériences" value={String(experiments.length)} />
-        <KpiCard label="Actives" value={String(active.length)} />
-        <KpiCard label="Terminées" value={String(completed.length)} />
-        <KpiCard label="Métrique principale" value="Cost / Quality" />
+        <div>
+          <KpiCard label="Total expériences" value={String(experiments.length)} />
+          <p className="text-xs text-gray-600 mt-1">Nombre total de tests A/B lancés dans votre tenant.</p>
+        </div>
+        <div>
+          <KpiCard label="Actives" value={String(active.length)} />
+          <p className="text-xs text-gray-600 mt-1">Expériences en cours. Les données sont encore collectées.</p>
+        </div>
+        <div>
+          <KpiCard label="Terminées" value={String(completed.length)} />
+          <p className="text-xs text-gray-600 mt-1">Expériences avec suffisamment d'échantillons pour conclure.</p>
+        </div>
+        <div>
+          <KpiCard label="Métrique principale" value="Cost / Quality" />
+          <p className="text-xs text-gray-600 mt-1">
+            Cost = coût moyen par requête (le moins cher gagne).
+            Quality = score de qualité moyen (le plus haut gagne).
+          </p>
+        </div>
       </div>
 
       <section className="mb-8">
-        <h3 className="text-lg font-semibold mb-3">Expériences actives</h3>
+        <h3 className="text-lg font-semibold mb-2">Expériences actives</h3>
+        <p className="text-xs text-gray-500 mb-3">
+          Ces expériences sont en phase de collecte de données. Les résultats affichés sont partiels
+          et peuvent encore évoluer. Le vainqueur est calculé à partir des données disponibles.
+        </p>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {active.map((exp: any) => (
             <ExpCard key={exp.id} exp={exp} />
           ))}
           {active.length === 0 && (
-            <p className="text-gray-500 text-sm">Aucune expérience active.</p>
+            <p className="text-gray-500 text-sm">Aucune expérience active. Lancez-en une via l'API.</p>
           )}
         </div>
       </section>
 
       {completed.length > 0 && (
         <section>
-          <h3 className="text-lg font-semibold mb-3">Expériences terminées</h3>
+          <h3 className="text-lg font-semibold mb-2">Expériences terminées</h3>
+          <p className="text-xs text-gray-500 mb-3">
+            Expériences avec données consolidées. La variante gagnante est déterminée
+            par la métrique choisie : coût moyen par requête ou score de qualité moyen.
+          </p>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {completed.map((exp: any) => (
               <ExpCard key={exp.id} exp={exp} />
@@ -81,6 +110,10 @@ function ExpCard({ exp }: { exp: any }) {
           {exp.status === 'active' ? 'Actif' : 'Terminé'}
         </span>
       </div>
+      <p className="text-xs text-gray-500 mb-3">
+        Compare {exp.variant_a} vs {exp.variant_b} sur la métrique {metricLabel}.
+        {exp.metric === 'cost' ? " Le moins cher est déclaré vainqueur." : " Le mieux noté est déclaré vainqueur."}
+      </p>
       <div className="grid grid-cols-2 gap-3">
         {Object.entries(variants).map(([name, data]: [string, any]) => {
           const avgCost = data.total_cost / data.samples;
@@ -90,7 +123,7 @@ function ExpCard({ exp }: { exp: any }) {
             <div key={name} className={`rounded-lg p-3 border ${isWinner ? 'border-orange-500 bg-orange-900/20' : 'border-gray-700 bg-gray-800'}`}>
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-sm font-medium">{name}</span>
-                {isWinner && <span className="text-xs text-orange-400">🏆 vainqueur</span>}
+                {isWinner && <span className="text-xs text-orange-400 font-medium">vainqueur</span>}
               </div>
               <div className="text-xs text-gray-400 space-y-0.5">
                 <p>Coût moy: {formatCost(avgCost)}</p>
@@ -102,7 +135,10 @@ function ExpCard({ exp }: { exp: any }) {
           );
         })}
       </div>
-      <p className="text-xs text-gray-500 mt-2">Métrique: {metricLabel}</p>
+      <p className="text-xs text-gray-600 mt-2">
+        Chaque utilisateur est assigné aléatoirement à une variante (hash de son user_id).
+        Les résultats incluent coût, qualité perçue et consommation tokens.
+      </p>
     </div>
   );
 }
