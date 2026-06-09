@@ -46,7 +46,10 @@ from backend.database import (
 from backend.utils import encrypt_api_key, decrypt_api_key, mask_api_key
 from backend.document_router import router as document_router
 
-app = FastAPI(title="TokenForge API", version="1.0.0")
+from backend.config import get_settings
+
+_settings = get_settings()
+app = FastAPI(title=_settings.APP_NAME, version=_settings.APP_VERSION)
 
 app.add_middleware(
     CORSMiddleware,
@@ -115,11 +118,13 @@ class TemplateRequest(BaseModel):
 @app.on_event("startup")
 def startup():
     init_db()
+    from backend.core.database_v2 import init_v2_db
+    init_v2_db()
 
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "1.0.0"}
+    return {"status": "ok", "version": _settings.APP_VERSION, "platform": _settings.APP_NAME}
 
 
 @app.post("/api/count-tokens", response_model=CountResponse)
@@ -447,6 +452,10 @@ def restart_api():
 
 
 app.include_router(document_router)
+
+# ── TokenForge Intelligence Platform API v2 ───────────
+from backend.api.v2.router import router as v2_router
+app.include_router(v2_router)
 
 # ── Proxy reseau transparent OpenAI ─────────────────────
 from backend.middleware.proxy import router as proxy_router

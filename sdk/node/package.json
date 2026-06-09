@@ -1,0 +1,9 @@
+{
+  "name": "@tokenforge/sdk",
+  "version": "2.0.0",
+  "description": "TokenForge Intelligence Platform SDK",
+  "main": "index.js",
+  "type": "module",
+  "keywords": ["llm", "finops", "tokenforge"],
+  "license": "MIT"
+}

@@ -14,6 +14,7 @@
 6. [Architecture du projet](#6-architecture-du-projet)
 7. [Détail des modules](#7-détail-des-modules)
 8. [FAQ](#8-faq)
+9. [TokenForge v2 — Plateforme Enterprise](#9-tokenforge-v2--plateforme-enterprise)
 
 ---
 
@@ -391,6 +392,120 @@ Le fichier .exe sera dans le dossier `dist/`.
 
 ---
 
+---
+
+## 9. TokenForge v2 — Plateforme Enterprise
+
+> Guide complet : [docs/GUIDE_V2_PLATFORM.md](./docs/GUIDE_V2_PLATFORM.md)
+
+À partir de la v2, TokenForge devient une **plateforme enterprise** en plus de l'application desktop. Tout le contenu des sections 1 à 8 (desktop, SPC, optimisation) reste valable.
+
+### Qui utilise quoi ?
+
+| Profil | Interface recommandée |
+|--------|----------------------|
+| Utilisateur final | Electron (`npm start`) ou `http://127.0.0.1:8765/` |
+| DSI / FinOps | Portail Next.js (`cd portal && npm run dev`) |
+| Développeur / intégration | API v2 ou SDK Python/Node |
+| Proxy transparent | SDK OpenAI → `base_url=http://127.0.0.1:8765/v1` |
+
+### Portail web (Next.js)
+
+```bash
+# Terminal 1 — backend
+python -m uvicorn backend.app:app --host 127.0.0.1 --port 8765
+
+# Terminal 2 — portail
+cd portal
+npm install
+npm run dev
+```
+
+Ouvrez **http://localhost:3000** — modules disponibles :
+
+| Page | Ce que vous y faites |
+|------|----------------------|
+| **Dashboard** | Vue exécutive : coûts, ROI, alertes budget |
+| **Prompt Analytics** | Prompts les plus coûteux et doublons |
+| **FinOps** | Budgets, prévisions, économies |
+| **Governance** | Politiques (ex. interdire un modèle pour RH) |
+| **Memory Center** | Préférences utilisateur + terminologie métier |
+| **Experiments** | Tests A/B compression vs original |
+
+### API v2 — premiers appels
+
+Toutes les routes v2 utilisent les headers :
+- `X-Tenant-ID` : identifiant entreprise (ex. `default`)
+- `X-User-ID` : identifiant utilisateur (ex. `alice`)
+
+**Dashboard DSI :**
+```bash
+curl http://127.0.0.1:8765/api/v2/dashboard \
+  -H "X-Tenant-ID: default" -H "X-User-ID: admin"
+```
+
+**Configurer les préférences utilisateur :**
+```bash
+curl -X PUT http://127.0.0.1:8765/api/v2/memory/user/profile \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: default" -H "X-User-ID: alice" \
+  -d '{"updates": {"language": "fr", "tone": "professional", "format": "table"}}'
+```
+
+**Voir le ROI :**
+```bash
+curl http://127.0.0.1:8765/api/v2/finops/roi \
+  -H "X-Tenant-ID: default" -H "X-User-ID: admin"
+```
+
+**Créer une politique de gouvernance :**
+```bash
+curl -X POST http://127.0.0.1:8765/api/v2/governance/policies \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: default" \
+  -d '{"name": "Interdire GPT-5", "rule_type": "deny_model", "config": {"models": ["gpt-5"]}}'
+```
+
+### SDK Python
+
+```python
+from tokenforge_v2 import TokenForgeClient
+
+client = TokenForgeClient(tenant_id="default", user_id="alice")
+print(client.dashboard())      # Vue DSI
+print(client.finops_roi())     # ROI net
+client.close()
+```
+
+### Ce que chaque pilier v2 apporte
+
+| Pilier | Bénéfice concret |
+|--------|------------------|
+| **Memory** | L'IA se souvient que vous voulez du français, ton pro, format tableau |
+| **Prompt Analytics** | Vous voyez quels prompts coûtent le plus cher |
+| **FinOps** | Budgets, alertes, prévisions, ROI prouvable |
+| **Governance** | Bloquez des modèles ou forcez la compression par équipe |
+| **Smart Gateway** | Cache + compression automatiques sur chaque appel |
+| **Observability** | Métriques Prometheus pour Grafana |
+| **Experiments** | Comparez original vs compressé avec des données |
+
+### Déploiement production
+
+```bash
+docker-compose up -d
+```
+
+Lance PostgreSQL, Redis, Qdrant et l'API. Voir `.env.example` pour la configuration.
+
+### Documentation complémentaire
+
+- [README.md](./README.md) — Vue d'ensemble v1 + v2
+- [README_V2.md](./README_V2.md) — Index rapide des modules v2
+- [docs/GUIDE_V2_PLATFORM.md](./docs/GUIDE_V2_PLATFORM.md) — Référence complète
+- [docs/adr/](./docs/adr/) — Décisions d'architecture
+
+---
+
 > **En résumé :** Lancez `npm start`, collez un prompt, cliquez sur "Optimiser". 
 > Pour des meilleurs résultats, ajoutez une clé API (onglet API Keys) et utilisez l'optimisation via IA.
-> Tout est expliqué dans ce guide, section par section.
+> Pour la plateforme enterprise (DSI, FinOps), utilisez le portail Next.js ou l'API v2 — section 9 ci-dessus.
