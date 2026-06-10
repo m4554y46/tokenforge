@@ -3,8 +3,7 @@
 import { useEffect, useState } from 'react';
 import { KpiCard } from '../../components/KpiCard';
 import { TrendChart } from '../../components/TrendChart';
-
-const HEADERS = { 'X-Tenant-ID': 'default', 'X-User-ID': 'portal' };
+import { authFetch, authFetchJson } from '../../lib/fetch';
 
 function fmt$(n: number): string {
   if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
@@ -50,16 +49,16 @@ export default function FinOpsPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/v2/finops/summary', { headers: HEADERS }).then(r => r.json()).then(setSummary),
-      fetch('/api/v2/finops/roi', { headers: HEADERS }).then(r => r.json()).then(setRoi),
-      fetch('/api/v2/finops/forecast', { headers: HEADERS }).then(r => r.json()).then(setForecast),
-      fetch('/api/v2/finops/anomalies', { headers: HEADERS }).then(r => r.json()).then(setAnomalies),
-      fetch('/api/v2/finops/budgets', { headers: HEADERS }).then(r => r.json()).then(setBudgets),
-      fetch('/api/v2/finops/alerts', { headers: HEADERS }).then(r => r.json()).then(setAlerts),
-      fetch('/api/v2/finops/top-prompts', { headers: HEADERS }).then(r => r.json()).then(setTopPrompts),
-      fetch('/api/v2/finops/trend', { headers: HEADERS }).then(r => r.json()).then(setTrendData),
-      fetch('/api/v2/finops/top-users', { headers: HEADERS }).then(r => r.json()).then(setTopUsers),
-      fetch('/api/v2/finops/provider-efficiency', { headers: HEADERS }).then(r => r.json()).then(setProviderEff),
+      authFetchJson<Record<string, any>>('/api/v2/finops/summary').then(d => d && setSummary(d)),
+      authFetchJson<Record<string, any>>('/api/v2/finops/roi').then(d => d && setRoi(d)),
+      authFetchJson<Record<string, any>>('/api/v2/finops/forecast').then(d => d && setForecast(d)),
+      authFetchJson<Record<string, any>>('/api/v2/finops/anomalies').then(d => d && setAnomalies(d)),
+      authFetchJson<any[]>('/api/v2/finops/budgets').then(d => d && setBudgets(d)),
+      authFetchJson<any[]>('/api/v2/finops/alerts').then(d => d && setAlerts(d)),
+      authFetchJson<any[]>('/api/v2/finops/top-prompts').then(d => d && setTopPrompts(d)),
+      authFetchJson<any[]>('/api/v2/finops/trend').then(d => d && setTrendData(d)),
+      authFetchJson<any[]>('/api/v2/finops/top-users').then(d => d && setTopUsers(d)),
+      authFetchJson<any[]>('/api/v2/finops/provider-efficiency').then(d => d && setProviderEff(d)),
     ]).finally(() => setLoading(false));
   }, []);
 

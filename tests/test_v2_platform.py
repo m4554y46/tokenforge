@@ -195,5 +195,71 @@ class TestAPIv2(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
 
 
+class TestProxyIntegration(unittest.TestCase):
+    """Integration tests for the proxy middleware."""
+
+    @classmethod
+    def setUpClass(cls):
+        from backend.core.database_v2 import init_v2_db
+        init_v2_db()
+        from fastapi.testclient import TestClient
+        from backend.app import app
+        cls.client = TestClient(app)
+
+    def test_proxy_stats_endpoint(self):
+        """Test that proxy stats endpoint returns expected structure."""
+        r = self.client.get("/v1/proxy/stats", headers={"X-Tenant-ID": "default", "X-User-ID": "test"})
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertIn("total_requests", data)
+        self.assertIn("total_tokens_original", data)
+        self.assertIn("total_tokens_compressed", data)
+        self.assertIn("savings_percent", data)
+        self.assertIn("circuit_breakers", data)
+        self.assertIn("cache_governor", data)
+
+    def test_proxy_models_endpoint(self):
+        """Test that proxy models endpoint relays to upstream (mocked)."""
+        r = self.client.get("/v1/models", headers={"X-Tenant-ID": "default", "X-User-ID": "test"})
+        # Should return a response (even if upstream fails, we return 502)
+        self.assertIn(r.status_code, [200, 502])
+
+    def test_proxy_chat_completions_validation(self):
+        """Test proxy validates required fields."""
+        r = self.client.post(
+            "/v1/chat/completions",
+            json={},
+            headers={"X-Tenant-ID": "default", "X-User-ID": "test"},
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("Missing messages", r.json()["error"]["message"])
+
+    def test_proxy_chat_completions_empty_messages(self):
+        """Test proxy rejects empty messages."""
+        r = self.client.post(
+            "/v1/chat/completions",
+            json={"messages": []},
+            headers={"X-Tenant-ID": "default", "X-User-ID": "test"},
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("Missing messages", r.json()["error"]["message"])
+
+    def test_circuit_breaker_in_stats(self):
+        """Test circuit breaker status is included in stats."""
+        r = self.client.get("/v1/proxy/stats", headers={"X-Tenant-ID": "default", "X-User-ID": "test"})
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertIsInstance(data["circuit_breakers"], dict)
+
+    def test_cache_governor_in_stats(self):
+        """Test cache governor stats are included."""
+        r = self.client.get("/v1/proxy/stats", headers={"X-Tenant-ID": "default", "X-User-ID": "test"})
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertIsInstance(data["cache_governor"], dict)
+        self.assertIn("total_hits", data["cache_governor"])
+        self.assertIn("top_keys", data["cache_governor"])
+
+
 if __name__ == "__main__":
     unittest.main()

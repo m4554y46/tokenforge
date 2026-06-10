@@ -23,6 +23,7 @@ class ROIEngine:
         row = query_one(
             f"SELECT SUM(cost_usd) as total_cost, "
             f"SUM(CASE WHEN compressed=1 THEN cost_usd ELSE 0 END) as optimized_cost, "
+            f"SUM(CASE WHEN compressed=1 THEN cost_usd / (1.0 - CASE WHEN savings_percent >= 99 THEN 0.99 ELSE savings_percent/100.0 END) ELSE cost_usd END) as baseline_cost, "
             f"SUM(input_tokens) as total_tokens, "
             f"AVG(CASE WHEN compressed=1 THEN savings_percent ELSE 0 END) as avg_savings "
             f"FROM prompt_events WHERE tenant_id={p} "
@@ -31,17 +32,21 @@ class ROIEngine:
         )
         total_cost = (row or {}).get("total_cost") or 0
         optimized_cost = (row or {}).get("optimized_cost") or 0
+        db_baseline_cost = (row or {}).get("baseline_cost") or 0
         total_tokens = (row or {}).get("total_tokens") or 0
         avg_savings = (row or {}).get("avg_savings") or 0
 
-        if optimized_cost > 0 and total_cost > optimized_cost:
-            baseline_cost = total_cost
-            actual_cost = optimized_cost
+        actual_cost = total_cost
+
+        if assumed_savings_rate is not None:
+            rate = max(0.0, min(0.99, assumed_savings_rate))
+            baseline_cost = actual_cost / (1.0 - rate)
+        elif db_baseline_cost > 0:
+            # Use actual historical pre-compression cost
+            baseline_cost = db_baseline_cost
         else:
-            rate = assumed_savings_rate if assumed_savings_rate is not None else max(avg_savings, 25) / 100
-            rate = max(rate, 0.05)
-            baseline_cost = total_cost / (1 - rate) if rate < 1 else total_cost
-            actual_cost = total_cost
+            # No actual pre-compression data and no assumed rate: 0% savings fallback, no inflation
+            baseline_cost = actual_cost
 
         savings = max(baseline_cost - actual_cost, 0)
         tf_rate = tokenforge_cost_per_1k or self.settings.TOKENFORGE_COST_PER_1K_TOKENS
@@ -49,8 +54,10 @@ class ROIEngine:
         net_roi = savings - tokenforge_cost
         roi_percent = (net_roi / tokenforge_cost * 100) if tokenforge_cost > 0 else 0
 
-        rate_used = assumed_savings_rate if assumed_savings_rate is not None else max(avg_savings, 25) / 100
-        rate_used = max(rate_used, 0.05)
+        if assumed_savings_rate is not None:
+            rate_used = assumed_savings_rate
+        else:
+            rate_used = avg_savings / 100
 
         return {
             "period_days": days,

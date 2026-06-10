@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { KpiCard } from '../../components/KpiCard';
+import { authFetchJson } from '../../lib/fetch';
 
 const CATEGORY_LABELS: Record<string, string> = {
   acronym: 'Acronymes',
@@ -23,10 +24,9 @@ export default function MemoryPage() {
   const [summary, setSummary] = useState<Record<string, any>>({});
 
   useEffect(() => {
-    const h = { 'X-Tenant-ID': 'default', 'X-User-ID': 'portal' };
-    fetch('/api/v2/memory/user/profile', { headers: h }).then(r => r.json()).then(setProfile);
-    fetch('/api/v2/memory/tenant/knowledge', { headers: h }).then(r => r.json()).then(d => setKnowledge(d.value ?? d));
-    fetch('/api/v2/memory/user/summary', { headers: h }).then(r => r.json()).then(setSummary).catch(() => {});
+    authFetchJson('/api/v2/memory/user/profile').then(d => d && setProfile(d));
+    authFetchJson<any[]>('/api/v2/memory/tenant/knowledge').then(d => d && setKnowledge(d));
+    authFetchJson('/api/v2/memory/user/summary').then(d => d && setSummary(d));
   }, []);
 
   const prefs = profile.preferences ?? {};

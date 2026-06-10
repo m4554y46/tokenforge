@@ -58,4 +58,15 @@ class Settings:
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    default_secret = "tokenforge-dev-secret-change-in-prod"
+    if settings.JWT_SECRET == default_secret:
+        import warnings
+        warnings.warn(
+            f"JWT_SECRET is using the default value. "
+            f"Set JWT_SECRET environment variable in production! "
+            f"Default secret: {default_secret}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return settings

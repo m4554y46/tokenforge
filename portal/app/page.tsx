@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { KpiCard } from '../components/KpiCard';
+import { authFetch, authFetchJson } from '../lib/fetch';
 
 const COMPRESSION_PROFILES = [
   { label: 'Light (35%)',   rate: 0.35 },
@@ -38,11 +39,12 @@ export default function Dashboard() {
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/v2/dashboard?savings_rate=${compressionRate}`, {
-      headers: { 'X-Tenant-ID': 'default', 'X-User-ID': 'portal' },
-    })
-      .then((r) => r.json())
-      .then(setRaw)
+    setError('');
+    authFetchJson<Record<string, any>>(`/api/v2/dashboard?savings_rate=${compressionRate}`)
+      .then((data) => {
+        if (data) setRaw(data);
+        else setError('Erreur chargement dashboard');
+      })
       .catch(() => setError('Erreur chargement dashboard'))
       .finally(() => setLoading(false));
   }, [compressionRate]);
