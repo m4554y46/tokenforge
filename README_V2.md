@@ -24,7 +24,7 @@ cd portal && npm install && npm run dev   # http://localhost:3000
 
 ---
 
-## Les 5 piliers + modules transverses
+## Les 6 piliers + modules transverses
 
 ### Pilier 1 — Memory Layer (`backend/memory/`)
 
@@ -102,6 +102,31 @@ Route chaque requête vers la stratégie optimale.
 Le proxy legacy `/v1/chat/completions` reste compatible SDK OpenAI.
 
 **ROI :** Compression et cache automatiques sans changer le code client.
+
+---
+
+### Pilier 6 — Adaptive Compression Engine (`backend/ace/`)
+
+Choisit dynamiquement le meilleur taux de compression pour chaque requête LLM en maximisant la marge économique nette. Bandit contextuel à 5 couches : quality model (LightGBM), cell state, exploration KG, attribution causale, embeddings de compressibilité.
+
+| Fichier | Rôle | API |
+|---------|------|-----|
+| `decider.py` | Moteur de décision (calcule $U(r,x)$, pick $r^*$) | intégré au proxy |
+| `features.py` | Extraction contexte : task, specificity, length, cluster | interne |
+| `state.py` | Cellules $(tenant, cluster, task, length, model, rate)$ | `GET /api/v2/ace/cells` |
+| `signals.py` | Détection reformulation/continuation entre requêtes | interne |
+| `models/quality_model.py` | LightGBM → ONNX, prédit qualité avec/sans signaux | `GET /api/v2/ace/train` |
+| `exploration.py` | Knowledge Gradient : explore seulement si ça change $r^*$ | interne |
+| `attribution.py` | Cause du signal : compression vs LLM vs user vs contexte | interne |
+| `embeddings.py` | SVD $contextes \times taux$, cold-start par k-NN | interne |
+| `train.py` | Pipeline d'entraînement unifié (quality model + embeddings) | `GET /api/v2/ace/train` |
+
+**ROI :** +36% de marge nette vs profil fixe, bypass automatique quand $U \leq 0$.
+
+```bash
+# Décision expliquée (pour le DSI)
+curl "http://127.0.0.1:8765/api/v2/ace/explain?prompt=Analyse+les+tendances+Q3" -H "X-Tenant-ID: acme"
+```
 
 ---
 

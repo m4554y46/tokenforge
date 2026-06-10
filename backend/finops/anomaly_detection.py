@@ -1,5 +1,6 @@
 """Détection d'anomalies de coût."""
 
+import statistics
 from typing import Any, Dict, List
 
 from backend.core.database_v2 import query_all, _param

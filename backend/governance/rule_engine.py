@@ -69,6 +69,17 @@ class RuleEngine:
             "force_compression": force_compression, "force_cache": force_cache,
         }
 
+    def set_policy_enabled(self, tenant_id: str, policy_id: int, enabled: bool, actor: str = "system") -> Dict[str, Any]:
+        p = _param()
+        now = datetime.now().isoformat()
+        execute(
+            f"UPDATE policies SET enabled={p}, updated_at={p} WHERE tenant_id={p} AND id={p}",
+            (int(enabled), now, tenant_id, policy_id),
+        )
+        action_label = "enable" if enabled else "disable"
+        self._audit(tenant_id, policy_id, action_label, actor, {"policy_id": policy_id})
+        return {"id": policy_id, "enabled": enabled}
+
     def _audit(self, tenant_id: str, policy_id: Optional[int], action: str, actor: str, details: Dict) -> None:
         p = _param()
         execute(

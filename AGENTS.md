@@ -84,6 +84,122 @@ python -m unittest tests.test_v2_platform
 docker-compose up -d
 ```
 
+## ACE — Fichiers clés
+
+- `backend/ace/state.py` — Constantes + `FAILURE_COST_BY_TASK` (9 types) + `get_failure_cost(task_type)` + `MIN_CLIENT_SAVINGS_BY_MODEL` (8 modèles) + `get_min_client_savings(model)` + CellState + DB ops
+- `backend/ace/decider.py` — Decision engine: `decide()` → `compute_utility()` → `is_valid()`, utilise `get_failure_cost()` + `get_min_client_savings()` + `max_safe_rate()` (Sanctuary)
+- `backend/ace/models/quality_model.py` — LightGBM → pickle, entraîné sur signaux, predict(features, signals) → qualité [0,1]
+- `backend/ace/embeddings.py` — SVD embeddings pour cold start k-NN
+- `backend/ace/train_seed.py` — Génère 600 requêtes synthétiques + lance l'entraînement (qualité + embeddings)
+- `backend/ace/_models/` — Modèles entraînés : `quality_model.pkl`, `embeddings.pkl`
+- `backend/ace/sanctuary.py` — Détecteur contenu protégé (code, JSON, LaTeX, tableaux, YAML) → `max_safe_rate()` plafonne la compression
+- `backend/ace/judge.py` — QualityJudge GPT-4o : évalue réponse compressée vs référence → score 0-1
+- `backend/ace/dashboard.py` — Dashboard qualité : agrégation DB (ace_states, ace_requests) par profil/tâche, alertes
+- `backend/ace/onboarding.py` — Calculateur ROI interactif : analyse prompt × volume mensuel → projection financière par profil
+- `crash_test_ace.py` — Test de la frontière de compression (10 prompts, seed cells, décisions ACE)
+
+## API endpoints ACE
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v2/ace/status` | Statut ACE (cells, requests, model dispo) |
+| `GET /api/v2/ace/cells` | Liste des cellules |
+| `GET /api/v2/ace/train` | Déclenche entraînement du modèle qualité |
+| `GET /api/v2/ace/explain` | Explication détaillée d'une décision |
+| `GET /api/v2/ace/quality-dashboard` | Dashboard qualité agrégé (summary, by_profile, by_task_type, alerts) |
+| `GET /api/v2/ace/onboarding` | Calculateur ROI pour un prompt (`?prompt=...&model=...&monthly_requests=...`) |
+
+## Tests ACE
+
+Tests dans `tests/test_ace.py` (71 tests) :
+- **TestSanctuary** (8) : détection blocs protégés, plafonnement taux, intégration decider
+- **TestQualityJudge** (5) : évaluation qualité, mock GPT-4o, reprise sur erreur, singleton
+- **TestQualityDashboard** (5) : agrégation DB, alertes, endpoint
+- **TestOnboardingROI** (7) : calculateur ROI, projection financière, Sanctuary respecté
+- **TestEndToEndFlow** (4) : pipeline complet features → décision → enregistrement → signal
+
+## Session Log
+
+### 2026-06-10 — Sanctuary + Judge + Dashboard + Onboarding + E2E tests
+
+**Sanctuary — détecteur de contenu protégé :**
+- `backend/ace/sanctuary.py` : 7 patterns (fenced code, LaTeX display/inline, YAML front matter, markdown tables, XML, JSON blocks)
+- Seuils : >30% protégé → max 15%, >15% → 25%, >5% → 40%
+- Intégré dans `decider.py` : `max_safe_rate(prompt_text)` filtre les candidats dans `decide()`
+- `prompt_text` passé via `features["prompt_text"]` par `proxy.py`
+- 8 tests : fenced code, LaTeX, JSON, tableaux, ratio élevé, mixte, pas de contenu, intégration decider
+
+**Quality Judge — évaluateur automatique GPT-4o :**
+- `backend/ace/judge.py` : `QualityJudge` classe avec `evaluate(prompt, response_a, response_b)` → score [0,1]
+- Prompt système avec 5 critères (exactitude, complétude, cohérence, fidélité, style)
+- Fallback 0.85 si pas de clé API OpenAI
+- Singleton via `get_judge()`, support batch `evaluate_batch()`, stats de latence
+- 5 tests : fallback, parsing JSON, retry, singleton, batch
+
+**Dashboard qualité ACE :**
+- `backend/ace/dashboard.py` : agrège `ace_states` + `ace_requests` par profil et type de tâche
+- Endpoint : `GET /api/v2/ace/quality-dashboard?days=7`
+- Alertes automatiques : qualité basse par profil, bypass ratio >50%, qualité dégradée par tâche
+- 5 tests
+
+**Onboarding + ROI calculator :**
+- `backend/ace/onboarding.py` : prend un prompt + modèle + volume mensuel → projection par profil
+- Endpoint : `GET /api/v2/ace/onboarding?prompt=...&model=...&monthly_requests=...`
+- Respecte Sanctuary (contient protégé → taux max limité)
+- 7 tests
+
+**End-to-end tests :**
+- `TestEndToEndFlow` (4) : cycle complet features → décision → enregistrement → signal, Sanctuary rate limit, quality model update, MIN_CLIENT_SAVINGS respecté
+- 71 ACE tests + 20 v2 platform = 91 total, tous passent
+
+### 2026-06-10 — ACE: FAILURE_COST par tâche + qualité model entraîné
+
+**FAILURE_COST dynamique par type de tâche :**
+- `backend/ace/state.py` : ajout `FAILURE_COST_BY_TASK` (9 types de $0.002 à $0.025)
+- `backend/ace/state.py` : ajout `get_failure_cost(task_type)` → lookup avec fallback global $0.01
+- `backend/ace/decider.py` : `compute_utility()` utilise `get_failure_cost(task_type)` au lieu de `FAILURE_COST` global
+- Impact crash test : passe de 1/10 à 4/10 prompts compressés (seuil ~1200 tokens pour tâche analytique)
+
+**Modèle de qualité LightGBM entraîné :**
+- `backend/ace/train_seed.py` : nouveau fichier — génère 600 requêtes synthétiques avec signaux réalistes
+- Entraînement : 600 samples → LightGBM sauvegardé en pickle (`quality_model.pkl`)
+- Le modèle apprend : copy+thumbs_up → Q=0.99, reformulation → Q=0.40
+- `_update_cell_quality()` utilise déjà le modèle via `_lazy_load_model()` + `predict(features, signals)`
+- `_get_quality()` n'utilise PAS le quality model (réservé aux mises à jour post-réponse avec signaux)
+- ONNX export non fonctionnel (onnxmltools non installé) — fallback pickle, suffisant pour backend Python
+
+**Corrections :**
+- `quality_model.py` : `predict()` utilisait `predict_proba` sur un `LGBMRegressor` → remplacé par `predict()`
+- `quality_model.py` : `predict()` n'alignait pas les dimensions features (26 vs 33) → toujours utiliser `_encode_features_with_signals` (zéro si pas de signaux)
+- `embeddings.py` : `cold_start_quality()` retourne None si pas de contexte similaire (le caller fait le fallback)
+- `tests/test_ace.py` : test embeddings adapté pour ne pas exiger de float quand le contexte n'existe pas
+
+### 2026-06-10 — Audit & amélioration FinOps Dashboard + plugin autosave
+
+**Backend corrigé :**
+- `backend/finops/anomaly_detection.py` : ajout `import statistics` manquant (NameError)
+- `backend/api/v2/router.py` : taux compression hardcodé 75% → réel via ROI ; appel redondant `_roi.calculate()` factorisé ; ajout endpoints `/finops/trend`, `/finops/top-users`, `/finops/provider-efficiency`
+- `backend/finops/cost_registry.py` : nouveaux champs `total_tokens`, `total_requests`, `cost_per_token`, `avg_cost_per_request` ; nouvelles méthodes `get_cost_trend()`, `get_top_users()`, `get_provider_efficiency()`
+- Dashboard endpoint enrichi : trend journalier, comparaison période, top users, provider efficiency
+
+**Frontend portail (Next.js 14) :**
+- `portal/components/KpiCard.tsx` : ajout `color`, `subtitle`, `trend`, `progress` (barre)
+- `portal/components/TrendChart.tsx` : nouveau composant SVG line chart (sans dépendance)
+- `portal/app/finops/page.tsx` : réécrit — 10 appels API parallèles, 7 rangées de KPIs :
+  1. Financial Pulse (4 KPIs avec couleurs + trends)
+  2. Trend chart + Prévisions 3 horizons
+  3. Breakdown provider/modèle + Efficiency fournisseur ($/token)
+  4. Top utilisateurs + Top prompts coûteux
+  5. Anomalies & Dérives + Budgets & Alertes
+  6. Recommandations actionnables (insights auto-générés)
+  7. Méthodologie de calcul
+- `portal/app/page.tsx` (Cockpit Exécutif `/`) : taux TF hardcodé 0.005 → 0.002 ; budget via API réelle (plus state local $500) ; suppression calcul local redondant
+
+**Plugin autosave :**
+- Installé : `opencode-autosave-conversation@1.1.0` (npm global)
+- Configuré : `opencode.json` avec `"plugin": ["opencode-autosave-conversation"]`
+- Sauvegarde auto dans `./conversations/` + backup `~/.conversations/tokenforge/`
+
 ## Notes
 - Port 8765 doit être libre
 - API v1 = zéro régression — ne pas modifier les signatures existantes

@@ -237,8 +237,14 @@ def _run_optimize_task(session_id: str, req: OptimizeRequest):
         # Enregistrer l'événement dans FinOps (v2) pour alimenter le dashboard
         try:
             from backend.finops.cost_registry import CostRegistry
-            # Prendre le dernier (meilleur) résultat de versions
+            # Utiliser le profil balanced (index 1) pour ne pas gonfler les chiffres
+            _profile_keys = ["balanced", "light", "aggressive", "max", "industrial"]
             _best_version = versions[-1] if versions else None
+            for pk in _profile_keys:
+                found = [v for v in versions if v.get("label", "").lower() == pk]
+                if found:
+                    _best_version = found[0]
+                    break
             if _best_version and original_tokens > 0:
                 CostRegistry().record_event(
                     tenant_id="default", user_id="local",

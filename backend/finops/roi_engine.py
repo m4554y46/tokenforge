@@ -15,6 +15,7 @@ class ROIEngine:
     def calculate(
         self, tenant_id: str, days: int = 30,
         tokenforge_cost_per_1k: Optional[float] = None,
+        assumed_savings_rate: Optional[float] = None,
     ) -> Dict[str, Any]:
         from datetime import datetime, timedelta
         p = _param()
@@ -37,8 +38,9 @@ class ROIEngine:
             baseline_cost = total_cost
             actual_cost = optimized_cost
         else:
-            savings_rate = max(avg_savings, 25) / 100
-            baseline_cost = total_cost / (1 - savings_rate) if savings_rate < 1 else total_cost
+            rate = assumed_savings_rate if assumed_savings_rate is not None else max(avg_savings, 25) / 100
+            rate = max(rate, 0.05)
+            baseline_cost = total_cost / (1 - rate) if rate < 1 else total_cost
             actual_cost = total_cost
 
         savings = max(baseline_cost - actual_cost, 0)
@@ -46,6 +48,9 @@ class ROIEngine:
         tokenforge_cost = (total_tokens / 1000) * tf_rate
         net_roi = savings - tokenforge_cost
         roi_percent = (net_roi / tokenforge_cost * 100) if tokenforge_cost > 0 else 0
+
+        rate_used = assumed_savings_rate if assumed_savings_rate is not None else max(avg_savings, 25) / 100
+        rate_used = max(rate_used, 0.05)
 
         return {
             "period_days": days,
@@ -57,5 +62,6 @@ class ROIEngine:
             "roi_percent": round(roi_percent, 1),
             "total_tokens": total_tokens,
             "avg_savings_percent": round(avg_savings, 1),
+            "assumed_rate": round(rate_used * 100, 0),
             "verdict": "positive" if net_roi > 0 else "neutral",
         }
