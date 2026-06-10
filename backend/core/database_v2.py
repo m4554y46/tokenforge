@@ -156,6 +156,12 @@ def init_v2_db() -> None:
                 )
         _initialized = True
 
+        try:
+            from backend.ace.tables import init_ace_tables
+            init_ace_tables()
+        except Exception:
+            pass
+
 
 def upsert_row(table: str, data: Dict[str, Any], conflict_cols: List[str]) -> None:
     p = _param()

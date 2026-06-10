@@ -14,11 +14,12 @@
 5. [Pilier 3 — FinOps](#5-pilier-3--finops)
 6. [Pilier 4 — Governance](#6-pilier-4--governance)
 7. [Pilier 5 — Smart Gateway](#7-pilier-5--smart-gateway)
-8. [Observability & Experiments](#8-observability--experiments)
-9. [Portail web (Next.js)](#9-portail-web-nextjs)
-10. [SDKs](#10-sdks)
-11. [Référence API v2](#11-référence-api-v2)
-12. [Configuration & déploiement](#12-configuration--déploiement)
+8. [Pilier 6 — Adaptive Compression Engine](#8-pilier-6--adaptive-compression-engine-ace)
+9. [Observability & Experiments](#9-observability--experiments)
+10. [Portail web (Next.js)](#10-portail-web-nextjs)
+11. [SDKs](#11-sdks)
+12. [Référence API v2](#12-référence-api-v2)
+13. [Configuration & déploiement](#13-configuration--déploiement)
 
 ---
 
@@ -465,7 +466,420 @@ client.chat.completions.create(model="gpt-4o", messages=[...])
 
 ---
 
-## 8. Observability & Experiments
+## 8. Pilier 6 — Adaptive Compression Engine (ACE)
+
+**Objectif :** Choisir dynamiquement le meilleur taux de compression pour
+chaque requête LLM, en maximisant la marge économique nette sous contrainte
+de qualité.
+
+### Principe
+
+Au lieu d'appliquer un profil fixe (ex. `balanced` à toutes les requêtes),
+ACE est un **bandit contextuel** qui apprend la fonction d'utilité :
+
+$$U(r,x) = S(r,x) \cdot TF_{share} - C_{TF}(r) - [1 - g(r,x)] \cdot C_{fail}$$
+
+et choisit $r^* = \arg\max U(r,x)$, avec la possibilité de ne pas compresser
+($r=0$) si l'utilité est négative.
+
+### Les 5 couches d'ACE
+
+| Couche | Fichier | Description | Originalité |
+|--------|---------|-------------|-------------|
+| **Quality Model** | `models/quality_model.py` | LightGBM qui prédit $P(qualité \mid x, r, s)$ | Pseudo-labels depuis signaux, ONNX export |
+| **Cell State** | `state.py` | Mémoire $(tenant, cluster, task, length, model, rate) \to qualité$ | LRU 10k, cold-start embeddings |
+| **Exploration KG** | `exploration.py` | Knowledge Gradient : explore si l'info peut changer $r^*$ | Pas de ε-greedy, pas d'UCB |
+| **Attribution** | `attribution.py` | Cause du signal : compression vs LLM vs user vs contexte | Bayésienne à 4 causes |
+| **Embeddings** | `embeddings.py` | Factorisation SVD $contextes \times taux$ | Cold-start par comportement, pas par sémantique |
+
+### `backend/ace/decider.py`
+
+**Rôle :** Moteur de décision principal. Reçoit les features, lit les cellules,
+calcule l'utilité, décide d'explorer ou non, et retourne le profil choisi.
+
+**Fonctions :**
+
+| Fonction | Description |
+|----------|-------------|
+| `decide(features, force_profile, contract_age_days, tenant_allows_exploration)` | Retourne `(profile, was_exploration, rate)` |
+| `compute_utility(rate, token_count, price, cell, features)` | Calcule $U(r,x)$ |
+| `is_valid(rate, utility, token_count, price, cell, features)` | Vérifie contraintes (qualité ≥ 0.80, client savings ≥ $0.001) |
+| `on_response(...)` | Enregistre la requête + session après compression |
+| `on_next_request(session_id, user_id, tenant_id, current_prompt, previous_features, previous_rate)` | Détecte signaux, attribue cause, met à jour cellule |
+
+**Décision détaillée /api/v2/ace/explain :**
+```json
+{
+  "features": { "task_type": "analytique", "specificity": "domain_jargon", ... },
+  "token_count": 250,
+  "token_price": 0.000005,
+  "explanations": [
+    { "profile": "aggressive", "rate": 0.60,
+      "expected_quality": 0.94, "n_samples": 45,
+      "savings_usd": 0.000750, "cost_tf": 0.00030,
+      "risk_usd": 0.00120, "utility": 0.000755, "valid": true },
+    ...
+  ],
+  "recommendation": { "profile": "aggressive", "utility": 0.000755 }
+}
+```
+
+### `backend/ace/features.py`
+
+**Rôle :** Extrait le contexte de chaque requête en 4 dimensions.
+
+| Feature | Valeurs | Méthode |
+|---------|---------|---------|
+| `task_type` | `factuel`, `analytique`, `code`, `creatif`, `resume`, `traduction`, `instruction`, `general` | Détection par mots-clés |
+| `specificity` | `generic`, `domain_jargon`, `highly_specific` | Ratio de termes spécialisés |
+| `length_bucket` | `short`, `medium`, `long`, `very_long` | Seuils : 50, 200, 1000 tokens |
+| `user_cluster` | 0–19 (20 clusters) | Hash déterministe du `user_id` |
+
+**Utilisation :**
+```python
+from backend.ace.features import extract_features
+feats = extract_features(prompt, token_count, model="gpt-4o",
+                         user_id="alice", tenant_id="acme")
+# → {"task_type": "analytique", "specificity": "domain_jargon",
+#     "length_bucket": "medium", "user_cluster": 7, ...}
+```
+
+### `backend/ace/state.py`
+
+**Rôle :** Persistance et cache des cellules d'état.
+
+**Classe `CellState` :**
+
+| Attribut | Type | Défaut | Description |
+|----------|------|--------|-------------|
+| `rate` | float | requis | Taux de compression (0.0–0.75) |
+| `quality_sum` | float | 0.0 | Somme pondérée des qualités observées |
+| `n_samples` | float | 0.0 | Nombre d'échantillons (poids) |
+| `n_explorations` | int | 0 | Requêtes en mode exploration |
+| `expected_quality` | float | calculée | `quality_sum / n_samples` (ou fallback) |
+
+**Fonctions principales :**
+
+| Fonction | Description |
+|----------|-------------|
+| `read_cell(tenant, cluster, task, length, model, rate)` | Lit une cellule (LRU cache, 10k entries) |
+| `read_cells_for_context(tenant, cluster, task, length, model)` | Lit toutes les cellules pour un contexte |
+| `write_cell(cell)` | Écrit/merge une cellule en DB |
+| `record_request(...)` | Enregistre la requête dans `ace_requests` |
+| `record_session(...)` | Enregistre dans `ace_sessions` |
+
+**Tables SQL :**
+
+| Table | Colonnes | Rôle |
+|-------|----------|------|
+| `ace_states` | `tenant_id, user_cluster, task_type, length_bucket, model, rate, quality_sum, n_samples, n_explorations` | Cellules d'état |
+| `ace_requests` | `id, tenant_id, user_id, session_id, task_type, specificity, length_bucket, user_cluster, model, provider, profile_chosen, rate_actual, tokens_original, tokens_compressed, latency_ms, was_exploration, signals_json, created_at` | Historique des requêtes |
+| `ace_sessions` | `session_id, tenant_id, user_id, prompt_hash, prompt_preview, response_hash, profile_chosen, created_at` | Sessions de chat |
+
+### `backend/ace/signals.py`
+
+**Rôle :** Détecte les signaux comportementaux entre requêtes consécutives.
+
+| Signal | Déclencheur | Fenêtre |
+|--------|-------------|---------|
+| `reformulation` | Token overlap ≥ 0.65 entre requête $N$ et $N+1$ | 30 secondes |
+| `continuation` | Nouvelle requête sans overlap fort, même session | 60 secondes |
+
+**Fonction :**
+```python
+from backend.ace.signals import detect_signals
+signal = detect_signals(session_id, user_id, tenant_id, current_prompt)
+# → SignalResult(reformulation=True, continuation=False,
+#                 quality_proxy=0.3, confidence=0.85)
+```
+
+### `backend/ace/models/quality_model.py`
+
+**Rôle :** LightGBM probabiliste qui prédit la qualité préservée.
+
+**Architecture des features (80–120 dimensions) :**
+- One-hot encodings : task (8), specificity (3), length (4), cluster (20), model (~10)
+- Scalars : rate, log(token_count), rate×model interactions
+- Avec signaux : quality_proxy, reformulation, continuation, confidence
+
+**Fonction :**
+```python
+from backend.ace.models.quality_model import get_model
+qm = get_model()
+q = qm.predict(features, signals)  # → [0, 1]
+```
+
+**Pseudo-labels (entraînement) :**
+
+| Condition | Label |
+|-----------|-------|
+| Reformulation sans continuation | 0.3 (échec probable) |
+| Continuation sans reformulation | 0.7 (succès probable) |
+| Aucun signal | 0.5 (incertain) |
+| Reformulation + continuation | 0.9 (contradictoire) |
+
+**API :**
+- `GET /api/v2/ace/train` — déclenche l'entraînement
+- `GET /api/v2/ace/status` — indique `quality_model_available: true/false`
+
+### `backend/ace/exploration.py`
+
+**Rôle :** Décide s'il faut explorer un taux alternatif (Knowledge Gradient).
+
+**Formule :**
+$$KG_j = \sigma_j \cdot \phi(\Delta_j/\sigma_j) + |\Delta_j| \cdot \Phi(|\Delta_j|/\sigma_j) - |\Delta_j|$$
+
+**Fonctions :**
+
+| Fonction | Description |
+|----------|-------------|
+| `knowledge_gradient(mean_j, var_j, other_means)` | KG pour un bras $j$ |
+| `should_explore(rate, expected_quality, variance, cells, token_count, price, contract_age, tenant_allows)` | (bool, KG_value) |
+| `pick_exploration_arm(cells, token_count, price, contract_age, tenant_allows)` | Retourne un taux à explorer ou None |
+
+**Conditions d'activation :**
+- Contrat ≥ 90 jours (pas d'exploration sur nouveaux clients)
+- Tenant autorise l'exploration
+- KG > 0 pour au moins un bras alternatif
+
+### `backend/ace/attribution.py`
+
+**Rôle :** Identifie la cause d'un signal pour éviter de pénaliser la
+compression pour des erreurs qui ne sont pas de son fait.
+
+**Modèle bayésien :**
+
+$$P(cause = c \mid s, x) = \frac{score_c}{\sum_k score_k}$$
+
+| Cause | Poids | Facteur |
+|-------|-------|---------|
+| Compression | 0.1 | $1 - g(r,x)$ |
+| Modèle LLM | 0.4 | $1 - reliability(model)$ |
+| Utilisateur | 0.3 | $1 - user\_history\_quality$ |
+| Contexte | 0.2 | $\min(complexité, 0.5) / 0.5$ |
+
+**Classe `AttributionResult` :**
+
+| Attribut | Description |
+|----------|-------------|
+| `cause` | `"compression"`, `"model"`, `"user"`, `"context"`, `"unknown"` |
+| `confidence` | Score normalisé [0, 1] |
+| `is_compression_failure` | True si cause = compression ET reformulation |
+| `details` | Dict des scores par cause |
+
+**Règle de mise à jour :**
+```python
+def should_update_quality(attribution):
+    if attribution.is_compression_failure: return True
+    if cause == "model" and confidence > 0.7: return False
+    if cause == "user" and confidence > 0.6: return False
+    return True  # cas ambigus
+```
+
+### `backend/ace/sanctuary.py`
+
+**Rôle :** Détecte le contenu protégé (code, JSON, LaTeX, tableaux markdown,
+YAML) dans le prompt et plafonne le taux de compression max autorisé pour
+éviter la corruption.
+
+**Seuils :**
+
+| Ratio protégé | Taux max | Profil max |
+|:---|---:|:---|
+| > 30 % | 0.15 | safe |
+| > 15 % | 0.25 | light |
+| > 5 % | 0.40 | balanced |
+
+**Fonctions :**
+
+| Fonction | Description |
+|----------|-------------|
+| `detect_protected_blocks(text)` | Liste des blocs détectés (type, start, end) |
+| `protected_ratio(text)` | Fraction du texte protégé [0, 1] |
+| `max_safe_rate(text)` | Taux max autorisé (1.0 = pas de limite) |
+
+**Intégration :** Appelé dans `decider.decide()` avant l'énumération des taux.
+Les taux > `sanctuary_max_rate` sont exclus de l'ensemble des candidats.
+
+### `backend/ace/judge.py`
+
+**Rôle :** Évaluateur qualité basé sur GPT-4o qui compare une réponse
+compressée à une réponse de référence et produit un score de qualité [0, 1].
+
+**Classe `QualityJudge` :**
+
+| Méthode | Description |
+|---------|-------------|
+| `evaluate(prompt, response_a, response_b)` | Score unique via GPT-4o |
+| `evaluate_batch(pairs)` | Batch (séquentiel) |
+| `is_available()` | True si clé API OpenAI configurée |
+| `get_stats()` | Stats latence |
+
+**Critères d'évaluation (5 dimensions) :**
+1. Exactitude factuelle (faits, chiffres, dates)
+2. Complétude (points clés préservés)
+3. Cohérence (raisonnement logique)
+4. Fidélité (pas de contradiction)
+5. Style (ton, niveau de détail)
+
+**Fallback :** Sans clé API, retourne 0.85 (score par défaut).
+
+### `backend/ace/dashboard.py`
+
+**Rôle :** Agrège les métriques qualité ACE depuis `ace_states` et
+`ace_requests` pour le dashboard DSI.
+
+**Endpoint :** `GET /api/v2/ace/quality-dashboard?days=7`
+
+**Retourne :**
+
+| Champ | Description |
+|-------|-------------|
+| `summary` | Stats globales (cells, quality, savings) |
+| `by_profile` | Qualité moyenne par profil de compression |
+| `by_task_type` | Qualité moyenne par type de tâche |
+| `alerts` | Alertes automatiques (qualité basse, bypass ratio, tâche dégradée) |
+
+### `backend/ace/onboarding.py`
+
+**Rôle :** Calculateur de ROI interactif pour prospects. Analyse un prompt
+saisi par l'utilisateur et projette les économies potentielles pour chaque
+profil de compression ACE.
+
+**Endpoint :** `GET /api/v2/ace/onboarding?prompt=...&model=...&monthly_requests=...`
+
+**Retourne :**
+
+| Champ | Description |
+|-------|-------------|
+| `prompt_analysis` | Type de tâche, longueur, ratio protégé, taux max Sanctuary |
+| `by_profile` | Chaque profil : économies, coût TF, net mensuel/annuel, ROI % |
+| `recommendation` | Profil recommandé (net mensuel max) |
+| `annual_projection` | Projection annuelle agrégée |
+
+### `backend/ace/embeddings.py`
+
+**Rôle :** Cold-start pour les cellules avec < 5 échantillons.
+
+**Principe :** Factorisation SVD de la matrice $contextes \times taux$
+où $M_{ij} = g(r_j, x_i)$. L'embedding d'un contexte capture comment il
+**répond à la compression**, pas de quoi il parle.
+
+**Fonctions :**
+
+| Fonction | Description |
+|----------|-------------|
+| `cold_start_quality(features, rate)` | Qualité estimée via k-NN (k=5) ou None |
+| `is_available()` | True si l'entraînement a été fait |
+| `fit()` | Entraînement SVD depuis ace_states |
+| `save(path)` | Sauvegarde U, V en .npy |
+
+### `backend/ace/train.py`
+
+**Rôle :** Pipeline d'entraînement unifié, exécutable via `python -m backend.ace.train`.
+
+```bash
+python -m backend.ace.train
+# → Trains quality model + embeddings + exports ONNX
+# → Nécessite ≥ 500 lignes avec signals_json non vide
+```
+
+**Phases :**
+1. Charge les données de `ace_requests` (min_samples paramétrable)
+2. Génère les pseudo-labels depuis les signaux
+3. Entraîne le QualityModel (LightGBM)
+4. Exporte en ONNX (~2 MB)
+5. Entraîne les embeddings de compressibilité (SVD)
+6. Sauvegarde U, V en .npy
+
+### API ACE
+
+| Endpoint | Méthode | Description |
+|----------|---------|-------------|
+| `/api/v2/ace/status` | GET | Stats globales (cells, requests, taux exploration, qualité modèle disponible) |
+| `/api/v2/ace/cells` | GET | Liste des cellules (filtrable par task_type, min_samples) |
+| `/api/v2/ace/train` | GET | Déclenche l'entraînement (quality model + embeddings) |
+| `/api/v2/ace/explain` | GET | Décompose l'utilité par profil pour un prompt donné |
+| `/api/v2/ace/quality-dashboard` | GET | Dashboard qualité agrégé (summary, by_profile, by_task, alerts) |
+| `/api/v2/ace/onboarding` | GET | Calculateur ROI interactif pour un prompt |
+
+### Diagramme de flux
+
+```
+Requête API
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 0. Sanctuary : detect_protected_blocks(prompt)               │
+│    → sanctuary_max_rate (plafonne les candidats)             │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────┐
+│ 1. extract_features(prompt) → task, specificity, etc │
+│ 2. read_cells_for_context(...) → g(r,x) pour 6 taux  │
+│ 3. Filtrer taux > sanctuary_max_rate                  │
+│ 4. compute_utility(r,x) pour chaque taux              │
+│ 5. is_valid(r, U, ...) → filtre les taux non rentables│
+│ 6. pick_exploration_arm(...) → KG > 0 ?               │
+│ 7. argmax U(r,x) → (profile, rate)                    │
+└──────────────────────────┬───────────────────────────┘
+                           │
+                           ▼
+                    Compression SPC
+                           │
+                           ▼
+                    Réponse LLM + enregistrement
+                           │ (requête suivante)
+                           ▼
+┌──────────────────────────────────────────────────────┐
+│ 8. detect_signals(session, user, tenant, prompt)     │
+│ 9. attribute(features, rate, signals) → cause        │
+│10. should_update_quality(attribution) ?               │
+│11. update_cell(...) → g(r,x) += δ                    │
+└──────────────────────────────────────────────────────┘
+                           │ (batch, offline)
+                           ▼
+┌──────────────────────────────────────────────────────┐
+│ Quality Judge : compare réponse compressée vs ref     │
+│ → score qualité pour entraînement du modèle           │
+└──────────────────────────────────────────────────────┘
+```
+
+### Modèle de données
+
+```
+ace_states (cellules)
+┌────────────────────────────────────────────────┐
+│ tenant_id │ cluster │ task │ length │ model │ r │
+│ quality_sum │ n_samples │ n_explorations         │
+│ PK: (tenant_id, cluster, task, length, model, r)│
+└────────────────────────────────────────────────┘
+
+ace_requests (historique)
+┌────────────────────────────────────────────────┐
+│ id │ tenant_id │ user_id │ session_id           │
+│ task_type │ specificity │ length_bucket         │
+│ user_cluster │ model │ provider                 │
+│ profile_chosen │ rate_actual                    │
+│ tokens_original │ tokens_compressed             │
+│ latency_ms │ was_exploration                    │
+│ signals_json (nullable)                         │
+│ created_at                                      │
+└────────────────────────────────────────────────┘
+
+ace_sessions (sessions)
+┌────────────────────────────────────────────────┐
+│ session_id │ tenant_id │ user_id                │
+│ prompt_hash │ prompt_preview                    │
+│ response_hash │ profile_chosen                  │
+│ created_at                                      │
+└────────────────────────────────────────────────┘
+```
+
+---
+
+## 9. Observability & Experiments
 
 ### `observability/hub.py`
 
@@ -492,7 +906,7 @@ curl -X POST http://127.0.0.1:8765/api/v2/experiments \
 
 ---
 
-## 9. Portail web (Next.js)
+## 10. Portail web (Next.js)
 
 **Chemin :** `portal/`
 
@@ -521,7 +935,7 @@ Le portail proxy les appels API vers le backend via `next.config.js`.
 
 ---
 
-## 10. SDKs
+## 11. SDKs
 
 ### Python (`sdk/python/tokenforge_v2/`)
 
@@ -550,7 +964,7 @@ const route = await client.routeRequest('Mon prompt...', 'gpt-4o');
 
 ---
 
-## 11. Référence API v2
+## 12. Référence API v2
 
 ### Dashboard exécutif
 
@@ -599,10 +1013,16 @@ Retourne : finops, roi, prompts, budget_alerts, anomalies, cache, résumés mém
 | GET | `/api/v2/observability/metrics` | Métriques |
 | GET | `/api/v2/observability/prometheus` | Export Prometheus |
 | GET/POST | `/api/v2/experiments` | A/B tests |
+| GET | `/api/v2/ace/status` | Stats ACE globales |
+| GET | `/api/v2/ace/cells` | Liste des cellules |
+| GET | `/api/v2/ace/train` | Entraînement modèle qualité |
+| GET | `/api/v2/ace/explain` | Décomposition utilité par profil |
+| GET | `/api/v2/ace/quality-dashboard` | Dashboard qualité agrégé |
+| GET | `/api/v2/ace/onboarding` | Calculateur ROI interactif |
 
 ---
 
-## 12. Configuration & déploiement
+## 13. Configuration & déploiement
 
 ### Mode développement (local)
 
@@ -625,7 +1045,8 @@ docker-compose up -d
 
 ```bash
 python -m unittest backend.spc.tests       # 149 tests — régression SPC v1
-python -m unittest tests.test_v2_platform # Tests plateforme v2
+python -m unittest tests.test_v2_platform   # 20 tests — plateforme v2
+python -m pytest tests/test_ace.py          # 71 tests — ACE (Sanctuary, Judge, Dashboard, Onboarding, E2E)
 ```
 
 ### Documentation complémentaire
@@ -637,6 +1058,8 @@ python -m unittest tests.test_v2_platform # Tests plateforme v2
 | [docs/adr/](./adr/) | Décisions d'architecture |
 | [TECHNIQUES_COMPRESSION.md](../TECHNIQUES_COMPRESSION.md) | Pipeline SPC détaillé |
 | [SPECS_LLM_GRAY_ZONE.md](../SPECS_LLM_GRAY_ZONE.md) | Couche 2 Gray Zone |
+| [FORMALISATION_MATHEMATIQUE.md](./FORMALISATION_MATHEMATIQUE.md) | Modèle mathématique ACE |
+| [CRASH_TEST_ACE.md](./CRASH_TEST_ACE.md) | Résultats crash test ACE |
 
 ---
 

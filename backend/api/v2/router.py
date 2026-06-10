@@ -253,8 +253,8 @@ def finops_forecast(ctx: TenantContext = Depends(resolve_tenant_context)):
 
 
 @router.get("/finops/roi")
-def finops_roi(ctx: TenantContext = Depends(resolve_tenant_context)):
-    return _roi.calculate(ctx.tenant_id)
+def finops_roi(ctx: TenantContext = Depends(resolve_tenant_context), savings_rate: Optional[float] = None):
+    return _roi.calculate(ctx.tenant_id, assumed_savings_rate=savings_rate)
 
 
 @router.get("/finops/anomalies")
@@ -277,6 +277,31 @@ def budget_alerts(ctx: TenantContext = Depends(resolve_tenant_context)):
     return _budgets.get_alerts(ctx.tenant_id)
 
 
+@router.get("/finops/top-prompts")
+def finops_top_prompts(ctx: TenantContext = Depends(resolve_tenant_context), limit: int = 10):
+    return _costs.get_top_costly_prompts(ctx.tenant_id, limit)
+
+
+@router.get("/finops/providers")
+def finops_providers():
+    return _costs.list_providers()
+
+
+@router.get("/finops/trend")
+def finops_trend(ctx: TenantContext = Depends(resolve_tenant_context)):
+    return _costs.get_cost_trend(ctx.tenant_id)
+
+
+@router.get("/finops/top-users")
+def finops_top_users(ctx: TenantContext = Depends(resolve_tenant_context), limit: int = 5):
+    return _costs.get_top_users(ctx.tenant_id, limit)
+
+
+@router.get("/finops/provider-efficiency")
+def finops_provider_efficiency(ctx: TenantContext = Depends(resolve_tenant_context)):
+    return _costs.get_provider_efficiency(ctx.tenant_id)
+
+
 # ── Governance ────────────────────────────────────────
 
 @router.get("/governance/policies")
@@ -287,6 +312,16 @@ def list_policies(ctx: TenantContext = Depends(resolve_tenant_context)):
 @router.post("/governance/policies")
 def create_policy(req: PolicyRequest, ctx: TenantContext = Depends(resolve_tenant_context)):
     return _rules.create_policy(ctx.tenant_id, req.name, req.rule_type, req.config, req.compliance_tags, ctx.user_id)
+
+
+@router.put("/governance/policies/{policy_id}/toggle")
+def toggle_policy(policy_id: int, ctx: TenantContext = Depends(resolve_tenant_context)):
+    policy = _rules.list_policies(ctx.tenant_id)
+    match = [p for p in policy if p.get("id") == policy_id]
+    if not match:
+        raise HTTPException(404, "Politique introuvable")
+    current = bool(match[0].get("enabled", False))
+    return _rules.set_policy_enabled(ctx.tenant_id, policy_id, not current, ctx.user_id)
 
 
 @router.post("/governance/evaluate")
@@ -358,17 +393,211 @@ def create_experiment(req: ExperimentRequest, ctx: TenantContext = Depends(resol
     return _experiments.create(ctx.tenant_id, req.name, req.variant_a, req.variant_b, req.metric)
 
 
+# ── ACE Dashboard ────────────────────────────────────
+
+@router.get("/ace/status")
+def ace_status(ctx: TenantContext = Depends(resolve_tenant_context)):
+    from backend.ace.state import RATES
+    from backend.core.database_v2 import query_one, _param
+    p = _param()
+    total = query_one(
+        f"SELECT COUNT(*) as c FROM ace_states WHERE tenant_id={p}",
+        (ctx.tenant_id,),
+    )
+    requests = query_one(
+        f"SELECT COUNT(*) as c, SUM(savings_percent) as total_savings, "
+        f"AVG(savings_percent) as avg_savings, "
+        f"SUM(was_exploration) as explorations "
+        f"FROM ace_requests WHERE tenant_id={p}",
+        (ctx.tenant_id,),
+    )
+    from backend.ace.models.quality_model import get_model
+    qm = get_model()
+    from backend.ace.embeddings import get_embeddings
+    emb = get_embeddings()
+    return {
+        "enabled": True,
+        "cells_total": (total or {}).get("c", 0) or 0,
+        "requests_total": (requests or {}).get("c", 0) or 0,
+        "avg_savings_percent": round((requests or {}).get("avg_savings", 0) or 0, 2),
+        "explorations_total": (requests or {}).get("explorations", 0) or 0,
+        "quality_model_available": qm.is_available(),
+        "embeddings_available": emb.is_available(),
+        "rates": RATES,
+    }
+
+
+@router.get("/ace/cells")
+def ace_cells(ctx: TenantContext = Depends(resolve_tenant_context),
+              task_type: Optional[str] = None, min_samples: int = 3):
+    from backend.core.database_v2 import query_all, _param
+    params = [ctx.tenant_id]
+    sql = (
+        "SELECT user_cluster, task_type, length_bucket, model, rate, "
+        "quality_sum, n_samples, n_explorations FROM ace_states "
+        f"WHERE tenant_id={_param()} AND n_samples >= {_param()}"
+    )
+    params.append(min_samples)
+    if task_type:
+        sql += f" AND task_type={_param()}"
+        params.append(task_type)
+    rows = query_all(sql, tuple(params))
+    return [
+        {
+            "cell": f"{r['user_cluster']}|{r['task_type']}|{r['length_bucket']}|{r['model']}|{r['rate']}",
+            "expected_quality": round(r["quality_sum"] / r["n_samples"], 4) if r["n_samples"] > 0 else 0.5,
+            "n_samples": r["n_samples"],
+            "n_explorations": r["n_explorations"],
+            "rate": r["rate"],
+        }
+        for r in rows
+    ]
+
+
+@router.get("/ace/train")
+def ace_train(ctx: TenantContext = Depends(resolve_tenant_context)):
+    from backend.ace.train import train_all
+    ok = train_all(min_samples=50)
+    return {"trained": ok}
+
+
+@router.get("/ace/explain")
+def ace_explain(ctx: TenantContext = Depends(resolve_tenant_context),
+                prompt: str = "", user_id: str = ""):
+    from backend.ace.decider import Decider
+    from backend.ace.features import extract_features
+    from backend.ace.state import (
+        RATES, read_cells_for_context, PROFILE_COMPUTE_COST, RATE_TO_PROFILE,
+        TF_SHARE, FAILURE_COST,
+    )
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt required")
+    d = Decider(tenant_id=ctx.tenant_id)
+    price = d.get_token_price("gpt-4o")
+    token_count = len(prompt.split())
+    feats = extract_features(prompt, token_count, model="gpt-4o", user_id=user_id, tenant_id=ctx.tenant_id)
+    cells = read_cells_for_context(
+        ctx.tenant_id, feats["user_cluster"], feats["task_type"],
+        feats["length_bucket"], "gpt-4o",
+    )
+    explanations = []
+    for rate in RATES:
+        cell = cells.get(rate)
+        if cell is None:
+            continue
+        profile = RATE_TO_PROFILE.get(rate, "bypass")
+        savings = token_count * rate * price
+        cost_tf = PROFILE_COMPUTE_COST.get(profile, 0.0)
+        quality = cell.expected_quality
+        risk = (1.0 - quality) * FAILURE_COST
+        u = d.compute_utility(rate, token_count, price, cell, feats)
+        explanations.append({
+            "profile": profile,
+            "rate": rate,
+            "expected_quality": round(quality, 4),
+            "n_samples": cell.n_samples,
+            "savings_usd": round(savings, 6),
+            "cost_tf": round(cost_tf, 6),
+            "risk_usd": round(risk, 6),
+            "utility": round(u, 8),
+            "valid": d.is_valid(rate, u, token_count, price, cell, feats),
+        })
+    explanations.sort(key=lambda x: -x["utility"])
+    return {
+        "features": feats,
+        "token_count": token_count,
+        "token_price": price,
+        "explanations": explanations,
+        "recommendation": explanations[0] if explanations else None,
+    }
+
+
+@router.get("/ace/quality-dashboard")
+def ace_quality_dashboard(ctx: TenantContext = Depends(resolve_tenant_context), days: int = 7):
+    from backend.ace.dashboard import get_dashboard_data
+    return get_dashboard_data(ctx.tenant_id, days=days)
+
+
+@router.get("/ace/onboarding")
+def ace_onboarding(prompt: str = "", model: str = "gpt-4o",
+                   monthly_requests: int = 100_000):
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt required")
+    from backend.ace.onboarding import calculate_onboarding
+    return calculate_onboarding(prompt=prompt, model=model,
+                                monthly_requests=monthly_requests)
+
+
 # ── Dashboard ─────────────────────────────────────────
 
 @router.get("/dashboard")
-def executive_dashboard(ctx: TenantContext = Depends(resolve_tenant_context)):
+def executive_dashboard(ctx: TenantContext = Depends(resolve_tenant_context), savings_rate: Optional[float] = None):
+    cost_summary = _costs.get_cost_summary(ctx.tenant_id)
+    prev_summary = _costs.get_cost_summary(ctx.tenant_id, days=60)
+    prev_cost = prev_summary.get("total_cost_usd", 0)
+    curr_cost = cost_summary.get("total_cost_usd", 0)
+    policies = _rules.list_policies(ctx.tenant_id)
+    experiments = _experiments.list_experiments(ctx.tenant_id)
+    by_model = cost_summary.get("by_model", [])
+    providers: Dict[str, float] = {}
+    models_str: Dict[str, float] = {}
+    for row in by_model:
+        p = row.get("provider", "unknown")
+        providers[p] = providers.get(p, 0) + (row.get("total_cost") or 0)
+        m = row.get("model", "unknown")
+        models_str[m] = models_str.get(m, 0) + (row.get("total_cost") or 0)
+    roi_data = _roi.calculate(ctx.tenant_id, assumed_savings_rate=savings_rate)
+    top_users_list = _costs.get_top_users(ctx.tenant_id)
+    provider_eff = _costs.get_provider_efficiency(ctx.tenant_id)
+    cost_trend = _costs.get_cost_trend(ctx.tenant_id)
     return {
-        "finops": _costs.get_cost_summary(ctx.tenant_id),
-        "roi": _roi.calculate(ctx.tenant_id),
+        "finops": cost_summary,
+        "roi": roi_data,
         "prompts": _prompts.dashboard_stats(ctx.tenant_id),
         "budget_alerts": _budgets.get_alerts(ctx.tenant_id),
         "anomalies": _anomaly.scan(ctx.tenant_id),
         "cache": _cache_gov.stats(),
         "user_summary": _summarizer.summarize_user(ctx.tenant_id, ctx.user_id),
         "tenant_summary": _summarizer.summarize_tenant(ctx.tenant_id),
+        "governance": {
+            "total_policies": len(policies),
+            "active_policies": sum(1 for p in policies if p.get("enabled")),
+            "policies": policies,
+        },
+        "experiments": {
+            "total": len(experiments),
+            "active": sum(1 for e in experiments if e.get("status") == "active"),
+            "active_experiments": [e for e in experiments if e.get("status") == "active"],
+        },
+        "cost_breakdown": {
+            "by_provider": dict(sorted(providers.items(), key=lambda x: -x[1])),
+            "by_model": dict(sorted(models_str.items(), key=lambda x: -x[1])),
+        },
+        "compression": {
+            "rate_used": roi_data.get("assumed_rate", 50) / 100,
+            "savings_avg": roi_data.get("avg_savings_percent", 0),
+            "ace_enabled": True,
+            "ace_detail": {
+                "api": "/api/v2/ace/status",
+                "explain": "/api/v2/ace/explain",
+                "cells": "/api/v2/ace/cells",
+            },
+            "note": "Taux de compression ACE. Ajustable via ?savings_rate=. Détails ACE : /api/v2/ace/status",
+        },
+        "trend": {
+            "daily": cost_trend,
+            "total_prev_period": round(prev_cost - curr_cost, 2),
+            "prev_period_cost": round(prev_cost, 2),
+        },
+        "top_users": top_users_list,
+        "provider_efficiency": [
+            {
+                "provider": r["provider"],
+                "total_cost": round(r["total_cost"] or 0, 4),
+                "total_tokens": r["total_tokens"] or 0,
+                "requests": r["requests"] or 0,
+                "cost_per_token": round((r["total_cost"] or 0) / (r["total_tokens"] or 1), 6),
+            }
+            for r in provider_eff
+        ],
     }

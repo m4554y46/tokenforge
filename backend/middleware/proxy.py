@@ -29,6 +29,7 @@ FORGE_COMPRESSION_PROFILE = os.environ.get("FORGE_COMPRESSION_PROFILE", "industr
 FORGE_COMPRESSION_ENABLED = os.environ.get("FORGE_COMPRESSION_ENABLED", "1") == "1"
 FORGE_LLM_REFINE = os.environ.get("FORGE_LLM_REFINE", "0") == "1"
 FORGE_STATS_ENABLED = os.environ.get("FORGE_STATS_ENABLED", "1") == "1"
+FORGE_ACE_ENABLED = os.environ.get("FORGE_ACE_ENABLED", "1") == "1"
 
 # Hop-by-hop headers a ne PAS forwarder
 _HOP_BY_HOP = frozenset({
@@ -51,6 +52,27 @@ _proxy_stats: Dict[str, Any] = {
 # Client HTTP singleton pour le forwarding (créé à la première utilisation)
 _client: Optional[httpx.AsyncClient] = None
 
+# ── ACE (Adaptive Compression Engine) ──────────────────────
+_ace_decider = None
+_session_ctx: Dict[str, Dict] = {}  # session_id → last request context
+
+RATE_TO_PROFILE_REV = {
+    "bypass": 0.0, "safe": 0.15, "light": 0.25,
+    "balanced": 0.40, "aggressive": 0.55, "max": 0.70, "industrial": 0.70,
+}
+
+
+def _get_ace_decider():
+    global _ace_decider
+    if _ace_decider is None:
+        try:
+            from backend.ace import Decider
+            _ace_decider = Decider()
+        except Exception as e:
+            logger.info("ACE not available, using static profile: %s", e)
+            _ace_decider = False
+    return _ace_decider if _ace_decider is not False else None
+
 
 async def _get_client() -> httpx.AsyncClient:
     """Retourne le client HTTP singleton, le réinitialise si le timeout a changé."""
@@ -68,9 +90,9 @@ router = APIRouter(prefix="/v1")
 # ════════════════════════════════════════════════════════════
 
 class _Compressor:
-    """Compresseur lazy-initialise avec cache de pipeline."""
+    """Compresseur lazy-initialise avec cache de pipelines par profil."""
     _instance = None
-    _spc = None
+    _spc_cache: Dict[str, Any] = {}
 
     @classmethod
     def get(cls):
@@ -78,37 +100,42 @@ class _Compressor:
             cls._instance = cls()
         return cls._instance
 
-    def compress(self, text: str) -> Tuple[str, bool, str]:
-        """Compresse un prompt. Retourne (texte_compresse, fallback, profile_name)."""
+    def _get_spc(self, profile_name: str):
+        if profile_name not in self._spc_cache:
+            from backend.spc.pipeline import SPC
+            from backend.spc.profiles import get_profile
+            self._spc_cache[profile_name] = SPC(profile=get_profile(profile_name))
+        return self._spc_cache[profile_name]
+
+    def compress(self, text: str, profile_name: str = "") -> Tuple[str, bool, str]:
+        """Compresse un prompt. Retourne (texte_compresse, fallback, profile_name_used)."""
+        pn = profile_name or FORGE_COMPRESSION_PROFILE
+
         if not FORGE_COMPRESSION_ENABLED or not text or len(text) < 30:
             return text, False, "bypass"
 
-        try:
-            if self._spc is None:
-                from backend.spc.pipeline import SPC
-                from backend.spc.profiles import get_profile
-                profile = get_profile(FORGE_COMPRESSION_PROFILE)
-                self._spc = SPC(profile=profile)
+        if pn == "bypass":
+            return text, False, "bypass"
 
-            result = self._spc.compile(text)
+        try:
+            spc = self._get_spc(pn)
+            result = spc.compile(text)
             compressed = result.compressed
 
-            # Quality gate : si fallback, on garde l'original
             if result.fallback or result.error:
-                return text, True, FORGE_COMPRESSION_PROFILE
+                return text, True, pn
 
-            # Verifier que le compresse est strictement plus court (comparaison token)
             from backend.token_counter import count_tokens
             orig_tok = count_tokens(text)
             comp_tok = count_tokens(compressed)
             if comp_tok >= orig_tok * 0.90 or comp_tok >= orig_tok:
-                return text, True, FORGE_COMPRESSION_PROFILE
+                return text, True, pn
 
-            return compressed, False, FORGE_COMPRESSION_PROFILE
+            return compressed, False, pn
 
         except Exception as e:
             logger.warning("Compression failed: %s", e)
-            return text, True, "error"
+            return text, True, pn
 
 _compressor = _Compressor.get
 
@@ -122,14 +149,14 @@ def _should_compress_role(role: str) -> bool:
     return role == "user"
 
 
-def _compress_messages(messages: List[Dict]) -> Tuple[List[Dict], Dict]:
+def _compress_messages(messages: List[Dict], profile_name: str = "") -> Tuple[List[Dict], Dict]:
     """Compresse les messages utilisateur dans la conversation.
 
     Retourne:
         (messages_compresses, stats)
     """
     compressed = []
-    stats = {"original_tokens": 0, "compressed_tokens": 0, "fallback": False}
+    stats = {"original_tokens": 0, "compressed_tokens": 0, "fallback": False, "profile_used": profile_name or FORGE_COMPRESSION_PROFILE}
 
     for msg in messages:
         role = msg.get("role", "")
@@ -139,7 +166,7 @@ def _compress_messages(messages: List[Dict]) -> Tuple[List[Dict], Dict]:
             o_tok = len(content.split())
             stats["original_tokens"] += o_tok
 
-            c_text, fb, profile_name = _compressor().compress(content)
+            c_text, fb, pn = _compressor().compress(content, profile_name=profile_name)
 
             c_tok = len(c_text.split())
             stats["compressed_tokens"] += c_tok
@@ -255,6 +282,7 @@ async def chat_completions(request: Request):
 
     messages = body.get("messages", [])
     stream = body.get("stream", False)
+    model = body.get("model", "gpt-4o")
 
     if not messages:
         return JSONResponse(
@@ -262,23 +290,90 @@ async def chat_completions(request: Request):
             content={"error": {"message": "Missing messages", "type": "invalid_request_error"}}
         )
 
-    # ── 1. Compression silencieuse ──────────────────────
+    # ── Session & user context ──────────────────────────
+    user_id = request.headers.get("x-user-id", "") or "anonymous"
+    tenant_id = request.headers.get("x-tenant-id", "default")
+    session_id = request.headers.get("x-session-id", "") or uuid.uuid4().hex[:12]
+
+    # ── ACE : détection signaux pour la requête précédente ──
+    if session_id in _session_ctx and FORGE_ACE_ENABLED:
+        try:
+            prev = _session_ctx.get(session_id)
+            if prev:
+                from backend.ace.signals import detect_signals, update_from_signals
+                user_prompt = ""
+                for msg in messages:
+                    if msg.get("role") == "user" and isinstance(msg.get("content"), str):
+                        user_prompt = msg["content"]
+                        break
+                signal = detect_signals(session_id, user_id, tenant_id, user_prompt)
+                if signal.reformulation or signal.continuation:
+                    pf = prev.get("features", {})
+                    update_from_signals(
+                        tenant_id=pf.get("tenant_id", tenant_id),
+                        user_cluster=pf.get("user_cluster", 0),
+                        task_type=pf.get("task_type", "factuel"),
+                        length_bucket=pf.get("length_bucket", "medium"),
+                        model=pf.get("model", "gpt-4o"),
+                        rate=prev.get("rate", 0.0),
+                        signal=signal,
+                    )
+        except Exception as e:
+            logger.warning("ACE signal detection failed: %s", e)
+
+    # ── ACE : choisir le profil de compression ──────────
     start = time.time()
-    compressed_messages, stats = _compress_messages(messages)
+    profile_name = FORGE_COMPRESSION_PROFILE
+    was_exploration = False
+    ace_decider = _get_ace_decider() if FORGE_ACE_ENABLED else None
+    ace_features = None
+
+    if ace_decider is not None:
+        try:
+            user_prompt = ""
+            for msg in messages:
+                if msg.get("role") == "user" and isinstance(msg.get("content"), str):
+                    user_prompt = msg["content"]
+                    break
+
+            from backend.ace.features import extract_features
+            token_count = len(user_prompt.split())
+            ace_features = extract_features(
+                prompt=user_prompt,
+                token_count=token_count,
+                model=model,
+                user_id=user_id,
+                tenant_id=tenant_id,
+            )
+            ace_features["prompt_preview"] = user_prompt[:200]
+            ace_features["prompt_text"] = user_prompt
+
+            pn, exp, _ = ace_decider.decide(ace_features)
+            profile_name = pn
+            was_exploration = exp
+        except Exception as e:
+            logger.warning("ACE decision failed, using default profile: %s", e)
+            profile_name = FORGE_COMPRESSION_PROFILE
+
+    # ── 1. Compression silencieuse ──────────────────────
+    compressed_messages, stats = _compress_messages(messages, profile_name=profile_name)
     body["messages"] = compressed_messages
     _update_stats(stats)
 
+    latency_ms = (time.time() - start) * 1000
     savings = 0
     if stats.get("original_tokens", 0) > 0:
         savings = max(0, (stats["original_tokens"] - stats["compressed_tokens"]) / stats["original_tokens"]) * 100
 
     logger.info(
-        "PROXY %s | model=%s | tokens=%d->%d (%.0f%%) | stream=%s | %.1fs",
+        "PROXY %s | model=%s | profile=%s | tokens=%d->%d (%.0f%%) | explore=%s | stream=%s | %.1fs",
         request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "?"),
-        body.get("model", "?"),
+        model,
+        profile_name,
         stats.get("original_tokens", 0),
         stats.get("compressed_tokens", 0),
         savings,
+        was_exploration,
         stream,
         time.time() - start,
     )
@@ -319,6 +414,45 @@ async def chat_completions(request: Request):
         )
     else:
         content = await upstream.aread()
+
+        # ── ACE : enregistrement post-réponse ──────────────
+        if ace_decider is not None and ace_features is not None:
+            try:
+                import hashlib
+                prompt_text = ""
+                for msg in messages:
+                    if msg.get("role") == "user" and isinstance(msg.get("content"), str):
+                        prompt_text = msg["content"]
+                        break
+                prompt_hash = hashlib.sha256(prompt_text.encode()).hexdigest()[:16]
+                response_text = content.decode() if isinstance(content, bytes) else content
+                response_hash = hashlib.sha256(str(response_text).encode()).hexdigest()[:16]
+
+                ace_decider.on_response(
+                    features=ace_features,
+                    profile_chosen=profile_name,
+                    tokens_original=stats.get("original_tokens", 0),
+                    tokens_compressed=stats.get("compressed_tokens", 0),
+                    latency_ms=latency_ms,
+                    was_exploration=was_exploration,
+                    session_id=session_id,
+                    prompt_hash=prompt_hash,
+                    response_hash=response_hash,
+                    provider=os.environ.get("FORGE_TARGET_URL", "openai").replace("https://", "").split(".")[0],
+                )
+
+                _session_ctx[session_id] = {
+                    "features": ace_features,
+                    "profile": profile_name,
+                    "rate": RATE_TO_PROFILE_REV.get(profile_name, 0.0),
+                    "prompt_hash": prompt_hash,
+                    "response_hash": response_hash,
+                }
+                if len(_session_ctx) > 5000:
+                    _session_ctx.pop(next(iter(_session_ctx)), None)
+            except Exception as e:
+                logger.warning("ACE post-response recording failed: %s", e)
+
         return Response(
             content=content,
             status_code=upstream.status_code,

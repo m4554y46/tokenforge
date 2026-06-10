@@ -59,7 +59,17 @@ class CostRegistry:
             (tenant_id, cutoff),
         )
         total = sum(r["total_cost"] or 0 for r in rows)
-        return {"total_cost_usd": round(total, 4), "by_model": rows, "period_days": days}
+        total_tokens = sum(r["total_input"] or 0 for r in rows)
+        total_requests = sum(r["requests"] or 0 for r in rows)
+        return {
+            "total_cost_usd": round(total, 4),
+            "total_tokens": total_tokens,
+            "total_requests": total_requests,
+            "cost_per_token": round(total / total_tokens, 6) if total_tokens else 0,
+            "avg_cost_per_request": round(total / total_requests, 4) if total_requests else 0,
+            "by_model": rows,
+            "period_days": days,
+        }
 
     def get_top_costly_prompts(self, tenant_id: str, limit: int = 10) -> List[Dict]:
         p = _param()
@@ -67,6 +77,41 @@ class CostRegistry:
             f"SELECT prompt_hash, prompt_preview, SUM(cost_usd) as total_cost, COUNT(*) as uses "
             f"FROM prompt_events WHERE tenant_id={p} GROUP BY prompt_hash ORDER BY total_cost DESC LIMIT {p}",
             (tenant_id, limit),
+        )
+
+    def get_cost_trend(self, tenant_id: str, days: int = 30) -> List[Dict]:
+        p = _param()
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        return query_all(
+            f"SELECT SUBSTR(created_at,1,10) as day, SUM(cost_usd) as cost, "
+            f"SUM(input_tokens) as tokens, COUNT(*) as requests "
+            f"FROM prompt_events WHERE tenant_id={p} AND created_at>={p} "
+            f"GROUP BY day ORDER BY day",
+            (tenant_id, cutoff),
+        )
+
+    def get_top_users(self, tenant_id: str, limit: int = 5, days: int = 30) -> List[Dict]:
+        p = _param()
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        return query_all(
+            f"SELECT user_id, SUM(cost_usd) as total_cost, SUM(input_tokens) as total_tokens, "
+            f"COUNT(*) as requests, AVG(savings_percent) as avg_savings "
+            f"FROM prompt_events WHERE tenant_id={p} AND created_at>={p} "
+            f"GROUP BY user_id ORDER BY total_cost DESC LIMIT {p}",
+            (tenant_id, cutoff, limit),
+        )
+
+    def get_provider_efficiency(self, tenant_id: str, days: int = 30) -> List[Dict]:
+        p = _param()
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        return query_all(
+            f"SELECT provider, SUM(cost_usd) as total_cost, SUM(input_tokens) as total_tokens, "
+            f"COUNT(*) as requests FROM prompt_events WHERE tenant_id={p} AND created_at>={p} "
+            f"GROUP BY provider ORDER BY total_cost DESC",
+            (tenant_id, cutoff),
         )
 
     def list_providers(self) -> Dict[str, List[str]]:

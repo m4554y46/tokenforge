@@ -55,6 +55,70 @@ curl http://127.0.0.1:8765/api/v2/dashboard -H "X-Tenant-ID: default" -H "X-User
 cd portal && npm install && npm run dev   # → http://localhost:3000
 ```
 
+## ACE — Adaptive Compression Engine
+
+ACE est le **cerveau économique** de TokenForge : il choisit dynamiquement le
+meilleur taux de compression pour chaque requête LLM, en maximisant la marge
+nette TokenForge sous contrainte de qualité.
+
+### L'idée en une phrase
+
+> Au lieu d'apprendre quel taux de compression fonctionne (approche bandit classique),
+> ACE apprend **la perte d'utilité** causée par chaque taux, et n'explore que quand
+> l'information peut changer la décision.
+
+### Les 5 couches
+
+| Couche | Fichier | Ce qu'elle fait | Astuce |
+|--------|---------|-----------------|--------|
+| **Quality Model** | `models/quality_model.py` | Prédit $P(qualité \mid x, r, s)$ via LightGBM | Pseudo-labels depuis signaux comportementaux |
+| **Cell State** | `state.py` | Mémoire $(tenant, cluster, task, length, model, rate) \to g(r,x)$ | LRU 10k, cold-start via embeddings |
+| **Exploration KG** | `exploration.py` | Knowledge Gradient : explore seulement si ça peut changer $r^*$ | Jamais de ε-greedy |
+| **Attribution** | `attribution.py` | Cause du signal : compression vs LLM vs user vs contexte | Empêche le bandit d'apprendre des hallucinations |
+| **Embeddings** | `embeddings.py` | Similarité de comportement face à la compression | MiniLM + SVD, cold-start par k-NN |
+
+### Pourquoi c'est malin
+
+1. **Économie réelle** — $U(r) = savings \cdot TF_{share} - cost_{TF} - risk$ ; si $U \leq 0$, on ne compresse pas
+2. **Exploration intelligente** — Knowledge Gradient pur, pas de randomisation. L'exploration a un ROI informationnel
+3. **Pas de double-peine** — Attribution bayésienne à 4 causes évite de pénaliser la compression pour les erreurs du LLM
+4. **Explicable** — Chaque décision se décompose en utilité par profil → idéal pour le dialogue DSI
+5. **Robuste** — Bypass ($r=0$) toujours disponible ; désactivable via `FORGE_ACE_ENABLED=0`
+
+### API ACE
+
+```bash
+# Statut et stats globales
+curl http://127.0.0.1:8765/api/v2/ace/status -H "X-Tenant-ID: default"
+
+# Expliquer une décision (pour le DSI)
+curl "http://127.0.0.1:8765/api/v2/ace/explain?prompt=Reduce+costs+by+20%25+in+Q3&user_id=alice" \
+  -H "X-Tenant-ID: default"
+
+# Lister toutes les cellules apprises
+curl http://127.0.0.1:8765/api/v2/ace/cells -H "X-Tenant-ID: default"
+
+# Lancer l'entraînement du modèle de qualité
+curl http://127.0.0.1:8765/api/v2/ace/train -H "X-Tenant-ID: default"
+```
+
+Voir **[docs/FORMALISATION_MATHEMATIQUE.md](./docs/FORMALISATION_MATHEMATIQUE.md)** pour la théorie complète.
+
+```
+Détail d'une décision ACE :
+
+Profile      Rate   Quality   Savings     Cost_TF    Risk_USD   Utility    Valid
+──────────   ────   ───────   ─────────   ────────   ────────   ────────   ─────
+max          0.75   0.9200    $0.00938    $0.00050   $0.00160   $0.00071   Yes
+aggressive   0.60   0.9400    $0.00750    $0.00030   $0.00120   $0.00075   Yes
+balanced     0.40   0.9500    $0.00500    $0.00010   $0.00100   $0.00040   Yes
+light        0.25   0.9800    $0.00313    $0.00005   $0.00040   $0.00049   Yes
+safe         0.15   0.9900    $0.00188    $0.00001   $0.00020   $0.00035   Yes
+bypass       0.00   1.0000    $0.00000    $0.00000   $0.00000   $0.00000   Yes
+                              ─────────────────────────────────────────────
+                              ➜ aggressive choisi (U = $0.00075/req)
+```
+
 ## Modes de compression
 
 | Mode | Moteur | Réduction | Description |
@@ -176,8 +240,11 @@ TokenForgev2/
 │   ├── python/tokenforge_v2/   # SDK Python
 │   └── node/                   # SDK Node.js
 ├── docs/
-│   ├── GUIDE_V2_PLATFORM.md    # Guide complet v2
-│   └── adr/                    # Architecture Decision Records
+│   ├── GUIDE_V2_PLATFORM.md        # Guide complet v2
+│   ├── FORMALISATION_MATHEMATIQUE.md  # Théorie ACE
+│   ├── STRATEGIE_COMPRESSION.md    # Stratégie + soutenance
+│   ├── PITCH_JURY.md              # Objections jury
+│   └── adr/                       # Architecture Decision Records
 ├── docker-compose.yml          # PostgreSQL + Redis + Qdrant
 ├── backend/
 │   ├── app.py                  # FastAPI v1 + v2
@@ -203,15 +270,15 @@ TokenForgev2/
 Clients (SDK / IDE / Electron / Portail Next.js)
         │
         ▼
-┌───────────────────────────────────────────────────────────┐
-│           FastAPI (port 8765)                             │
-│  /api/* (v1)  ·  /api/v2/* (enterprise)  ·  /v1/* proxy │
-├───────────────────────────────────────────────────────────┤
-│  Gateway v2 ──► Memory ──► FinOps ──► Governance          │
-│       │                                                   │
-│       ▼                                                   │
-│  SPC Pipeline (18 phases) + Gray Zone LLM (optionnel)     │
-└───────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│           FastAPI (port 8765)                                 │
+│  /api/* (v1)  ·  /api/v2/* (enterprise)  ·  /v1/* proxy     │
+├───────────────────────────────────────────────────────────────┤
+│  Gateway v2 ──► Memory ──► FinOps ──► Governance ──► ACE     │
+│       │                                                       │
+│       ▼                                                       │
+│  SPC Pipeline (18 phases) + Gray Zone LLM (optionnel)        │
+└───────────────────────────────────────────────────────────────┘
         │
         ▼
   Providers LLM (OpenAI, Anthropic, Gemini, DeepSeek…)
@@ -291,6 +358,12 @@ python -m unittest backend.spc.tests
 # Tests plateforme v2
 python -m unittest tests.test_v2_platform
 
+# Tests ACE (42 tests — adaptative compression)
+python -m unittest tests.test_ace
+
+# Entraînement ACE (quality model + embeddings)
+python -m backend.ace.train
+
 # Portail enterprise
 cd portal && npm run dev
 
@@ -321,6 +394,9 @@ npm run build:win
 | Document | Contenu |
 |----------|---------|
 | [docs/GUIDE_V2_PLATFORM.md](./docs/GUIDE_V2_PLATFORM.md) | **Guide complet v2** — chaque module, API, SDK, déploiement |
+| [docs/FORMALISATION_MATHEMATIQUE.md](./docs/FORMALISATION_MATHEMATIQUE.md) | Théorie ACE : quality model, KG, attribution, embeddings |
+| [docs/STRATEGIE_COMPRESSION.md](./docs/STRATEGIE_COMPRESSION.md) | Stratégie de compression + préparation soutenance |
+| [docs/PITCH_JURY.md](./docs/PITCH_JURY.md) | Objections et réponses pour convaincre un jury |
 | [GUIDE_UTILISATION.md](./GUIDE_UTILISATION.md) | Guide utilisateur desktop (v1) |
 | [TECHNIQUES_COMPRESSION.md](./TECHNIQUES_COMPRESSION.md) | Pipeline SPC détaillé |
 | [SPECS_LLM_GRAY_ZONE.md](./SPECS_LLM_GRAY_ZONE.md) | Couche 2 Gray Zone LLM |
