@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { KpiCard } from '../../components/KpiCard';
+import { authFetchJson } from '../../lib/fetch';
 
 function TopPromptsSection({ title, desc, items }: { title: string; desc: string; items: any[] }) {
   if (!items || items.length === 0) return null;
@@ -35,10 +36,9 @@ export default function PromptsPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const h = { 'X-Tenant-ID': 'default', 'X-User-ID': 'portal' };
     Promise.all([
-      fetch('/api/v2/prompts/dashboard', { headers: h }).then(r => r.json()).then(setDashboard).catch(() => {}),
-      fetch('/api/v2/prompts/top', { headers: h }).then(r => r.json()).then(setTopData).catch(() => {}),
+      authFetchJson<Record<string, any>>('/api/v2/prompts/dashboard').then(d => d && setDashboard(d)),
+      authFetchJson<Record<string, any[]>>('/api/v2/prompts/top').then(d => d && setTopData(d)),
     ]).catch(() => setError('Erreur chargement prompts'))
       .finally(() => setLoading(false));
   }, []);

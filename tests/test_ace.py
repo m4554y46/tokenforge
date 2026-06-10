@@ -77,12 +77,14 @@ class TestSanctuary(unittest.TestCase):
 
 
 class TestQualityJudge(unittest.TestCase):
-    def test_returns_default_when_no_api_key(self):
+    def test_returns_heuristic_score_when_no_api_key(self):
         from backend.ace.judge import QualityJudge
         judge = QualityJudge(api_key="")
         result = judge.evaluate("prompt", "ref response", "compressed response")
-        self.assertEqual(result["score"], 0.85)
-        self.assertEqual(result["error"], "no_api_key")
+        self.assertGreaterEqual(result["score"], 0.0)
+        self.assertLessEqual(result["score"], 1.0)
+        self.assertIsNone(result["error"])
+        self.assertIn("justification", str(result["details"]))
 
     @patch("backend.ace.judge.QualityJudge._get_client")
     def test_parses_json_from_gpt4o(self, mock_get_client):
@@ -131,13 +133,15 @@ class TestQualityJudge(unittest.TestCase):
         from backend.ace.judge import QualityJudge
         judge = QualityJudge(api_key="")
         pairs = [
-            ("p1", "a1", "b1"),
-            ("p2", "a2", "b2"),
+            ("p1", "reference answer about AI", "compressed version about AI"),
+            ("p2", "second reference here", "second compressed here"),
         ]
         results = judge.evaluate_batch(pairs)
         self.assertEqual(len(results), 2)
         for r in results:
-            self.assertEqual(r["score"], 0.85)
+            self.assertGreaterEqual(r["score"], 0.0)
+            self.assertLessEqual(r["score"], 1.0)
+            self.assertIsNone(r["error"])
 
 
 class TestFeatureExtraction(unittest.TestCase):

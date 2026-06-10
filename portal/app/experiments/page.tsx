@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { KpiCard } from '../../components/KpiCard';
+import { authFetchJson } from '../../lib/fetch';
 
 function computeWinner(variants: Record<string, any>, metric: string): string | null {
   const keys = Object.keys(variants);
@@ -22,8 +23,7 @@ export default function ExperimentsPage() {
   const [experiments, setExperiments] = useState<any[]>([]);
 
   useEffect(() => {
-    fetch('/api/v2/experiments', { headers: { 'X-Tenant-ID': 'default', 'X-User-ID': 'portal' } })
-      .then(r => r.json()).then(d => setExperiments(d.value ?? d));
+    authFetchJson<any[]>('/api/v2/experiments').then(d => d && setExperiments(d));
   }, []);
 
   const active = experiments.filter(e => e.status === 'active');

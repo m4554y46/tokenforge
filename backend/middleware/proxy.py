@@ -21,6 +21,9 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from backend.gateway.circuit_breaker import CircuitBreaker, CircuitState
+from backend.gateway.cache_governor import CacheGovernor
+
 logger = logging.getLogger("forge-proxy")
 
 # ── Configuration ─────────────────────────────────────────
@@ -49,8 +52,31 @@ _proxy_stats: Dict[str, Any] = {
     "total_streaming": 0,
 }
 
+# Circuit breakers per provider/model
+_circuit_breakers: Dict[str, CircuitBreaker] = {}
+
+def _get_circuit_breaker(key: str) -> CircuitBreaker:
+    """Get or create circuit breaker for a provider/model key."""
+    if key not in _circuit_breakers:
+        _circuit_breakers[key] = CircuitBreaker(
+            name=key,
+            failure_threshold=5,
+            recovery_timeout=30.0,
+            half_open_max=2,
+        )
+    return _circuit_breakers[key]
+
 # Client HTTP singleton pour le forwarding (créé à la première utilisation)
 _client: Optional[httpx.AsyncClient] = None
+
+# Cache Governor — tracks prompt frequency for cache decisions
+_cache_governor: Optional[CacheGovernor] = None
+
+def _get_cache_governor() -> CacheGovernor:
+    global _cache_governor
+    if _cache_governor is None:
+        _cache_governor = CacheGovernor()
+    return _cache_governor
 
 # ── ACE (Adaptive Compression Engine) ──────────────────────
 _ace_decider = None
@@ -90,15 +116,25 @@ router = APIRouter(prefix="/v1")
 # ════════════════════════════════════════════════════════════
 
 class _Compressor:
-    """Compresseur lazy-initialise avec cache de pipelines par profil."""
+    """Compresseur lazy-initialise avec cache de pipelines par profil.
+    
+    Cache les resultats de compression par hash du texte + profil,
+    evite de recompresser les prompts identiques.
+    """
     _instance = None
     _spc_cache: Dict[str, Any] = {}
+    _result_cache: Dict[str, Tuple[str, bool, str]] = {}
+    _result_cache_max = 5000
 
     @classmethod
     def get(cls):
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
+
+    def _cache_key(self, text: str, profile_name: str) -> str:
+        import hashlib
+        return hashlib.md5(f"{profile_name}::{text}".encode()).hexdigest()
 
     def _get_spc(self, profile_name: str):
         if profile_name not in self._spc_cache:
@@ -108,7 +144,11 @@ class _Compressor:
         return self._spc_cache[profile_name]
 
     def compress(self, text: str, profile_name: str = "") -> Tuple[str, bool, str]:
-        """Compresse un prompt. Retourne (texte_compresse, fallback, profile_name_used)."""
+        """Compresse un prompt. Retourne (texte_compresse, fallback, profile_name_used).
+        
+        Le resultat est mis en cache par hash(texte + profil) pour eviter
+        de recompresser les prompts identiques. Le cache est LRU (5000 entrees).
+        """
         pn = profile_name or FORGE_COMPRESSION_PROFILE
 
         if not FORGE_COMPRESSION_ENABLED or not text or len(text) < 30:
@@ -117,25 +157,44 @@ class _Compressor:
         if pn == "bypass":
             return text, False, "bypass"
 
+        # ── Cache lookup ──
+        ck = self._cache_key(text, pn)
+        cached = self._result_cache.get(ck)
+        if cached is not None:
+            return cached
+
         try:
             spc = self._get_spc(pn)
             result = spc.compile(text)
             compressed = result.compressed
 
             if result.fallback or result.error:
-                return text, True, pn
+                out = (text, True, pn)
+                self._result_cache[ck] = out
+                return out
 
             from backend.token_counter import count_tokens
             orig_tok = count_tokens(text)
             comp_tok = count_tokens(compressed)
             if comp_tok >= orig_tok * 0.90 or comp_tok >= orig_tok:
-                return text, True, pn
+                out = (text, True, pn)
+                self._result_cache[ck] = out
+                return out
 
-            return compressed, False, pn
-
+            out = (compressed, False, pn)
         except Exception as e:
             logger.warning("Compression failed: %s", e)
-            return text, True, pn
+            out = (text, True, pn)
+
+        # ── Mettre en cache avec eviction LRU simple ──
+        self._result_cache[ck] = out
+        if len(self._result_cache) > self._result_cache_max:
+            # Supprimer ~10% des entrees les plus anciennes
+            remove = len(self._result_cache) - self._result_cache_max + 500
+            for k in list(self._result_cache.keys())[:remove]:
+                del self._result_cache[k]
+
+        return out
 
 _compressor = _Compressor.get
 
@@ -200,13 +259,31 @@ async def _forward(
     body: Optional[bytes] = None,
     stream: bool = False,
 ) -> httpx.Response:
-    """Forwarde une requete vers l'API OpenAI cible."""
+    """Forwarde une requete vers l'API OpenAI cible avec circuit breaker."""
     target = os.environ.get("FORGE_TARGET_URL", "https://api.openai.com")
     url = target.rstrip("/") + "/" + path.lstrip("/")
-
+    
+    # Extract provider from target URL for circuit breaker key
+    provider = target.replace("https://", "").split(".")[0]
+    cb = _get_circuit_breaker(provider)
+    
     client = await _get_client()
     req = client.build_request(method, url, headers=headers, content=body)
-    return await client.send(req, stream=stream)
+    
+    # Use circuit breaker to call the upstream
+    def _do_send():
+        return client.send(req, stream=stream)
+    
+    def _fallback():
+        # Return a mock error response when circuit is open
+        from httpx import Response
+        return Response(
+            status_code=503,
+            json={"error": {"message": f"Circuit breaker open for {provider}", "type": "circuit_open"}},
+            request=req,
+        )
+    
+    return cb.call(_do_send, fallback=_fallback)
 
 
 def _rewrite_response_headers(headers: dict) -> dict:
@@ -347,6 +424,9 @@ async def chat_completions(request: Request):
             )
             ace_features["prompt_preview"] = user_prompt[:200]
             ace_features["prompt_text"] = user_prompt
+
+            # Cache Governor: record request frequency
+            _get_cache_governor().record_request(user_prompt, model)
 
             pn, exp, _ = ace_decider.decide(ace_features)
             profile_name = pn
@@ -524,6 +604,7 @@ async def proxy_stats():
     elapsed = time.time() - _proxy_stats["uptime"]
     total = _proxy_stats["total_tokens_original"]
     saved = total - _proxy_stats["total_tokens_compressed"]
+    cg_stats = _get_cache_governor().stats()
     return {
         "uptime_seconds": round(elapsed, 1),
         "uptime_human": f"{elapsed/3600:.1f}h" if elapsed > 3600 else f"{elapsed/60:.1f}min",
@@ -537,4 +618,6 @@ async def proxy_stats():
         "total_errors": _proxy_stats["total_errors"],
         "compression_profile": FORGE_COMPRESSION_PROFILE,
         "compression_enabled": FORGE_COMPRESSION_ENABLED,
+        "circuit_breakers": {k: v.status() for k, v in _circuit_breakers.items()},
+        "cache_governor": cg_stats,
     }

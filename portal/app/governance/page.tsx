@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { KpiCard } from '../../components/KpiCard';
+import { authFetch, authFetchJson, authFetchOk } from '../../lib/fetch';
 
 const RULE_TYPE_DESC: Record<string, string> = {
   deny_model: 'Interdit l\'utilisation de certains modèles (gpt-4o, claude-opus…)',
@@ -14,11 +15,7 @@ const RULE_TYPE_DESC: Record<string, string> = {
 
 async function togglePolicy(id: number, current: boolean): Promise<boolean> {
   try {
-    const r = await fetch(`/api/v2/governance/policies/${id}/toggle`, {
-      method: 'PUT',
-      headers: { 'X-Tenant-ID': 'default', 'X-User-ID': 'portal' },
-    });
-    if (!r.ok) return false;
+    const r = await authFetchOk(`/api/v2/governance/policies/${id}/toggle`, { method: 'PUT' });
     const d = await r.json();
     return d.enabled;
   } catch { return !current; }
@@ -31,15 +28,16 @@ export default function GovernancePage() {
   const [complianceEnabled, setComplianceEnabled] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    const h = { 'X-Tenant-ID': 'default', 'X-User-ID': 'portal' };
-    fetch('/api/v2/governance/policies', { headers: h }).then(r => r.json()).then(d => setPolicies(d.value ?? d));
-    fetch('/api/v2/governance/audit', { headers: h }).then(r => r.json()).then(d => setAuditLog(d.value ?? d));
-    fetch('/api/v2/governance/compliance/frameworks', { headers: h }).then(r => r.json()).then(fws => {
-      setFrameworks(fws);
-      const stored = JSON.parse(localStorage.getItem('tf_compliance_enabled') ?? '{}');
-      const initial: Record<string, boolean> = {};
-      Object.keys(fws).forEach(k => { initial[k] = stored[k] ?? false; });
-      setComplianceEnabled(initial);
+    authFetchJson<any[]>('/api/v2/governance/policies').then(d => d && setPolicies(d));
+    authFetchJson<any[]>('/api/v2/governance/audit').then(d => d && setAuditLog(d));
+    authFetchJson<Record<string, any>>('/api/v2/governance/compliance/frameworks').then(fws => {
+      if (fws) {
+        setFrameworks(fws);
+        const stored = JSON.parse(localStorage.getItem('tf_compliance_enabled') ?? '{}');
+        const initial: Record<string, boolean> = {};
+        Object.keys(fws).forEach(k => { initial[k] = stored[k] ?? false; });
+        setComplianceEnabled(initial);
+      }
     });
   }, []);
 
