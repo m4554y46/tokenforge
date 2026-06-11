@@ -1085,5 +1085,195 @@ class TestLocalRewrite(unittest.TestCase):
         self.assertIn("llmlingua2", INDUSTRIAL.phases)
 
 
+# ── Texte de test réel : courriel professionnel français ─────
+
+_REAL_FRENCH_TEXT = """Bonjour à toutes et à tous,
+
+Suite à la tenue de notre dernier comité de pilotage stratégique de mardi dernier, je reviens vers vous afin de formaliser les prochaines grandes étapes structurantes concernant le déploiement de notre nouvelle application mobile à destination des équipes de terrain.
+
+Dans l'optique d'optimiser l'expérience utilisateur globale et de garantir une adoption maximale par les collaborateurs et les collaboratrices, il a été acté d'intégrer en priorité un module de suivi des incidents en temps réel.
+
+Cette fonctionnalité essentielle devra impérativement faire l'objet d'une phase de tests de charge poussés en environnement de recette avant toute ouverture des accès.
+
+Sur le plan purement calendaire, la date butoir pour la livraison de cette version bêta est fermement fixée au 15 septembre prochain.
+
+Par ailleurs, afin d'anticiper d'avance les risques de dérive sur les délais, nous planifierons un point de synchronisation technique hebdomadaire, chaque jeudi matin à 9h00, pour faire un état des lieux précis de l'avancement des développements.
+
+Je reste bien entendu à votre entière disposition pour tout complément d'information ou retour d'expérience.
+
+Cordialement,
+
+La direction des projets informatiques."""
+
+_REAL_ENGLISH_TEXT = """Hello everyone,
+
+Following our last strategic steering committee held this past Tuesday, I am writing to formalize the next key steps regarding the deployment of our new mobile application for field teams.
+
+In order to optimize the overall user experience and ensure maximum adoption by employees, we have decided to prioritize the integration of a real-time incident tracking module.
+
+This essential feature must undergo thorough load testing in a staging environment before any access is granted.
+
+From a scheduling perspective, the deadline for delivering this beta version is firmly set for September 15th.
+
+Furthermore, to anticipate any potential delays, we will schedule a weekly technical synchronization point every Thursday at 9:00 AM to monitor development progress.
+
+I remain at your disposal for any additional information or feedback.
+
+Sincerely,
+
+The IT Projects Department."""
+
+
+def _count_words(text: str) -> int:
+    return len(text.split())
+
+
+def _sentences(text: str) -> list[str]:
+    import re
+    return [s.strip() for s in re.split(r'[.!?]\s+', text) if s.strip()]
+
+
+def _has_garbled_fragments(text: str) -> bool:
+    """Détecte les fragments illisibles caractéristiques de KOMPRESS :
+       - mots tronqués ou collés bizarrement
+       - absence de verbes dans des phrases censées en contenir
+       - séquences de mots sans espacement
+    """
+    import re
+    # Mots collés sans espace (camelCase bizarre)
+    if re.search(r'[a-z][A-Z][a-z]', text):
+        return True
+    # Token fragments avec apostrophe au milieu de nulle part
+    fragments = re.findall(r"'[a-z]{2,}\s+'", text)
+    if len(fragments) > 2:
+        return True
+    # Ratio majuscules suspect
+    upper_ratio = sum(1 for c in text if c.isupper()) / max(len(text), 1)
+    if upper_ratio > 0.4 and len(text) > 100:
+        return True
+    return False
+
+
+def _check_sentence_order(original: str, compressed: str) -> tuple[bool, str]:
+    """Vérifie que les phrases compressées apparaissent dans l'ordre original.
+    Retourne (ok, raison_échec).
+    """
+    orig_sents = _sentences(original)
+    comp_sents = _sentences(compressed)
+    if not comp_sents:
+        return True, ""
+
+    last_found_idx = -1
+    for cs in comp_sents:
+        cs_lower = cs.lower()[:40]
+        found = False
+        for j, os in enumerate(orig_sents):
+            os_lower = os.lower()[:40]
+            # Vérifier si les débuts de phrase se correspondent
+            if len(cs_lower) > 10 and (cs_lower[:15] in os_lower or os_lower[:15] in cs_lower):
+                if j < last_found_idx:
+                    return False, f"phrase inversée: '{cs[:50]}' (orig#{j}) après orig#{last_found_idx}"
+                last_found_idx = j
+                found = True
+                break
+        if not found:
+            # phrase non trouvée dans l'original — peut être une reformulation, OK
+            pass
+    return True, ""
+
+
+class TestQualityIntegration(unittest.TestCase):
+    """Tests de qualité réelle du pipeline SPC sur des textes authentiques.
+    Vérifie que la sortie est lisible, dans l'ordre, et sans artefacts.
+    """
+
+    def _test_profile_quality(self, profile_name: str, text: str, lang: str = "fr"):
+        from backend.spc.pipeline import SPC
+        from backend.spc.profiles import get_profile
+        profile = get_profile(profile_name)
+        spc = SPC(profile=profile)
+        result = spc.compile(text)
+
+        compressed = result.compressed
+        orig_words = _count_words(text)
+        comp_words = _count_words(compressed)
+
+        # 1. Pas de fallback intempestif
+        self.assertFalse(
+            result.fallback and comp_words < orig_words * 0.95,
+            f"{profile_name}: fallback alors que la compression a réduit le texte"
+        )
+
+        # 2. Compression de base (peut être identique pour safe/light)
+        self.assertGreaterEqual(
+            orig_words, comp_words * 0.5,
+            f"{profile_name}: la compression ne doit pas exploser le texte"
+        )
+
+        # 3. Pas de fragments illisibles
+        self.assertFalse(
+            _has_garbled_fragments(compressed),
+            f"{profile_name}: fragments illisibles détectés dans la sortie"
+        )
+
+        # 4. Ordre des phrases conservé
+        ok, reason = _check_sentence_order(text, compressed)
+        self.assertTrue(ok, f"{profile_name}: {reason}")
+
+    def test_french_safe(self):
+        self._test_profile_quality("safe", _REAL_FRENCH_TEXT)
+
+    def test_french_light(self):
+        self._test_profile_quality("light", _REAL_FRENCH_TEXT)
+
+    def test_french_balanced(self):
+        self._test_profile_quality("balanced", _REAL_FRENCH_TEXT)
+
+    def test_english_safe(self):
+        self._test_profile_quality("safe", _REAL_ENGLISH_TEXT)
+
+    def test_english_light(self):
+        self._test_profile_quality("light", _REAL_ENGLISH_TEXT)
+
+    def test_english_balanced(self):
+        self._test_profile_quality("balanced", _REAL_ENGLISH_TEXT)
+
+    def test_french_all_profiles_preserve_utf8(self):
+        """Les accents français doivent survivre à la compression."""
+        from backend.spc.pipeline import SPC
+        from backend.spc.profiles import get_profile
+        import unicodedata
+        for pname in ("safe", "light", "balanced"):
+            profile = get_profile(pname)
+            spc = SPC(profile=profile)
+            result = spc.compile(_REAL_FRENCH_TEXT)
+            for char in set(_REAL_FRENCH_TEXT):
+                if unicodedata.category(char).startswith("L") and ord(char) > 127:
+                    self.assertIn(char, result.compressed,
+                                  f"{pname}: '{char}' perdu dans la compression")
+
+    def test_aggressive_falls_back_gracefully(self):
+        """Sans modèle GGUF, les profils agressifs doivent tomber sur KOMPRESS
+        sans planter et sans produire de texte vide."""
+        from backend.spc.pipeline import SPC
+        from backend.spc.profiles import get_profile
+        profile = get_profile("aggressive")
+        spc = SPC(profile=profile)
+        result = spc.compile(_REAL_FRENCH_TEXT)
+        self.assertIsNotNone(result.compressed)
+        self.assertGreater(len(result.compressed.strip()), 0,
+                           "aggressive: texte vide en sortie")
+
+    def test_industrial_falls_back_gracefully(self):
+        from backend.spc.pipeline import SPC
+        from backend.spc.profiles import get_profile
+        profile = get_profile("industrial")
+        spc = SPC(profile=profile)
+        result = spc.compile(_REAL_FRENCH_TEXT)
+        self.assertIsNotNone(result.compressed)
+        self.assertGreater(len(result.compressed.strip()), 0,
+                           "industrial: texte vide en sortie")
+
+
 if __name__ == "__main__":
     unittest.main()
