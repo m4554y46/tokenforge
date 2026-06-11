@@ -164,6 +164,19 @@ _FR_POLITE_MAP = [
     (re.compile(r"\bpourriez-vous\s+", re.I), ""),
 ]
 
+_FR_REDUNDANT_MAP = [
+    (re.compile(r"\banticiper\s+d\'avance\b", re.I), "anticiper"),
+    (re.compile(r"\bprévoir\s+à\s+l\'avance\b", re.I), "prévoir"),
+    (re.compile(r"\bprévoir\s+par\s+avance\b", re.I), "prévoir"),
+    (re.compile(r"\bmonter\s+en\s+haut\b", re.I), "monter"),
+    (re.compile(r"\bdescendre\s+en\s+bas\b", re.I), "descendre"),
+    (re.compile(r"\bcollaborer\s+ensemble\b", re.I), "collaborer"),
+    (re.compile(r"\brépéter\s+à\s+nouveau\b", re.I), "répéter"),
+    (re.compile(r"\bplus\s+mieux\b", re.I), "mieux"),
+    (re.compile(r"\baujourd\'hui\s+de\s+ce\s+jour\b", re.I), "aujourd'hui"),
+    (re.compile(r"\bpréavis\s+d\'avance\b", re.I), "préavis"),
+]
+
 # ═══════════════════════════════════════════════════════════════
 # PUBLIC API
 # ═══════════════════════════════════════════════════════════════
@@ -171,7 +184,10 @@ _FR_POLITE_MAP = [
 
 def shorten_phrases(text: str, lang: str = "en") -> str:
     """Replace verbose phrases with shorter equivalents."""
-    for pattern, replacement in (_EN_PHRASE_MAP + _EN_REDUNDANT_MAP + _EN_ABBREV_MAP):
+    maps = _EN_PHRASE_MAP + _EN_REDUNDANT_MAP + _EN_ABBREV_MAP
+    if lang == "fr":
+        maps += _FR_REDUNDANT_MAP
+    for pattern, replacement in maps:
         text = pattern.sub(replacement, text)
     return text
 
@@ -183,7 +199,10 @@ def remove_fluff(text: str) -> str:
 
 def simplify_polite(text: str, lang: str = "en") -> str:
     """Remove polite / meta phrases unnecessary for LLMs."""
-    for pattern, replacement in (_EN_POLITE_MAP + _EN_INSTRUCTION_MAP):
+    maps = _EN_POLITE_MAP + _EN_INSTRUCTION_MAP
+    if lang == "fr":
+        maps += _FR_POLITE_MAP
+    for pattern, replacement in maps:
         text = pattern.sub(replacement, text)
     return text
 
