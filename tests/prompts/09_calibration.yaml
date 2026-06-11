@@ -1,0 +1,273 @@
+calibration:
+  description: Tests du calibrage - nouveaux modules (Phase 3)
+  prompts:
+    K01_conformal_drift:
+      id: K01
+      difficulty: 5
+      tokens: 1500
+      languages:
+      - en
+      notes: Test de drift distributionnel.
+      contract_check:
+      - drift_detected_or_covered
+      text: 'In this analysis, we examine the quarterly performance metrics of our cloud infrastructure migration project.
+        The key performance indicators include: average response time (target less than 200ms), error rate (target less than
+        0.1 percent), throughput (target greater than 1000 req/s), resource utilization (target less than 80 percent), cost
+        per transaction (target less than 0.001 dollars). In this analysis, we examine the quarterly performance metrics of
+        our cloud infrastructure migration project. The key performance indicators include: average response time (target
+        less than 200ms), error rate (target less than 0.1 percent), throughput (target greater than 1000 req/s), resource
+        utilization (target less than 80 percent), cost per transaction (target less than 0.001 dollars). In this analysis,
+        we examine the quarterly performance metrics of our cloud infrastructure migration project. The key performance indicators
+        include: average response time (target less than 200ms), error rate (target less than 0.1 percent), throughput (target
+        greater than 1000 req/s), resource utilization (target less than 80 percent), cost per transaction (target less than
+        0.001 dollars). In this analysis, we examine the quarterly performance metrics of our cloud infrastructure migration
+        project. The key performance indicators include: average response time (target less than 200ms), error rate (target
+        less than 0.1 percent), throughput (target greater than 1000 req/s), resource utilization (target less than 80 percent),
+        cost per transaction (target less than 0.001 dollars). In this analysis, we examine the quarterly performance metrics
+        of our cloud infrastructure migration project. The key performance indicators include: average response time (target
+        less than 200ms), error rate (target less than 0.1 percent), throughput (target greater than 1000 req/s), resource
+        utilization (target less than 80 percent), cost per transaction (target less than 0.001 dollars). In this analysis,
+        we examine the quarterly performance metrics of our cloud infrastructure migration project. The key performance indicators
+        include: average response time (target less than 200ms), error rate (target less than 0.1 percent), throughput (target
+        greater than 1000 req/s), resource utilization (target less than 80 percent), cost per transaction (target less than
+        0.001 dollars). In this analysis, we examine the quarterly performance metrics of our cloud infrastructure migration
+        project. The key performance indicators include: average response time (target less than 200ms), error rate (target
+        less than 0.1 percent), throughput (target greater than 1000 req/s), resource utilization (target less than 80 percent),
+        cost per transaction (target less than 0.001 dollars). In this analysis, we examine the quarterly performance metrics
+        of our cloud infrastructure migration project. The key performance indicators include: average response time (target
+        less than 200ms), error rate (target less than 0.1 percent), throughput (target greater than 1000 req/s), resource
+        utilization (target less than 80 percent), cost per transaction (target less than 0.001 dollars). In this analysis,
+        we examine the quarterly performance metrics of our cloud infrastructure migration project. The key performance indicators
+        include: average response time (target less than 200ms), error rate (target less than 0.1 percent), throughput (target
+        greater than 1000 req/s), resource utilization (target less than 80 percent), cost per transaction (target less than
+        0.001 dollars). In this analysis, we examine the quarterly performance metrics of our cloud infrastructure migration
+        project. The key performance indicators include: average response time (target less than 200ms), error rate (target
+        less than 0.1 percent), throughput (target greater than 1000 req/s), resource utilization (target less than 80 percent),
+        cost per transaction (target less than 0.001 dollars). In this analysis, we examine the quarterly performance metrics
+        of our cloud infrastructure migration project. The key performance indicators include: average response time (target
+        less than 200ms), error rate (target less than 0.1 percent), throughput (target greater than 1000 req/s), resource
+        utilization (target less than 80 percent), cost per transaction (target less than 0.001 dollars). In this analysis,
+        we examine the quarterly performance metrics of our cloud infrastructure migration project. The key performance indicators
+        include: average response time (target less than 200ms), error rate (target less than 0.1 percent), throughput (target
+        greater than 1000 req/s), resource utilization (target less than 80 percent), cost per transaction (target less than
+        0.001 dollars). In this analysis, we examine the quarterly performance metrics of our cloud infrastructure migration
+        project. The key performance indicators include: average response time (target less than 200ms), error rate (target
+        less than 0.1 percent), throughput (target greater than 1000 req/s), resource utilization (target less than 80 percent),
+        cost per transaction (target less than 0.001 dollars). In this analysis, we examine the quarterly performance metrics
+        of our cloud infrastructure migration project. The key performance indicators include: average response time (target
+        less than 200ms), error rate (target less than 0.1 percent), throughput (target greater than 1000 req/s), resource
+        utilization (target less than 80 percent), cost per transaction (target less than 0.001 dollars). In this analysis,
+        we examine the quarterly performance metrics of our cloud infrastructure migration project. The key performance indicators
+        include: average response time (target less than 200ms), error rate (target less than 0.1 percent), throughput (target
+        greater than 1000 req/s), resource utilization (target less than 80 percent), cost per transaction (target less than
+        0.001 dollars). In this analysis, we examine the quarterly performance metrics of our cloud infrastructure migration
+        project. The key performance indicators include: average response time (target less than 200ms), error rate (target
+        less than 0.1 percent), throughput (target greater than 1000 req/s), resource utilization (target less than 80 percent),
+        cost per transaction (target less than 0.001 dollars). In this analysis, we examine the quarterly performance metrics
+        of our cloud infrastructure migration project. The key performance indicators include: average response time (target
+        less than 200ms), error rate (target less than 0.1 percent), throughput (target greater than 1000 req/s), resource
+        utilization (target less than 80 percent), cost per transaction (target less than 0.001 dollars). In this analysis,
+        we examine the quarterly performance metrics of our cloud infrastructure migration project. The key performance indicators
+        include: average response time (target less than 200ms), error rate (target less than 0.1 percent), throughput (target
+        greater than 1000 req/s), resource utilization (target less than 80 percent), cost per transaction (target less than
+        0.001 dollars). In this analysis, we examine the quarterly performance metrics of our cloud infrastructure migration
+        project. The key performance indicators include: average response time (target less than 200ms), error rate (target
+        less than 0.1 percent), throughput (target greater than 1000 req/s), resource utilization (target less than 80 percent),
+        cost per transaction (target less than 0.001 dollars). In this analysis, we examine the quarterly performance metrics
+        of our cloud infrastructure migration project. The key performance indicators include: average response time (target
+        less than 200ms), error rate (target less than 0.1 percent), throughput (target greater than 1000 req/s), resource
+        utilization (target less than 80 percent), cost per transaction (target less than 0.001 dollars). In this analysis,
+        we examine the quarterly performance metrics of our cloud infrastructure migration project. The key performance indicators
+        include: average response time (target less than 200ms), error rate (target less than 0.1 percent), throughput (target
+        greater than 1000 req/s), resource utilization (target less than 80 percent), cost per transaction (target less than
+        0.001 dollars). In this analysis, we examine the quarterly performance metrics of our cloud infrastructure migration
+        project. The key performance indicators include: average response time (target less than 200ms), error rate (target
+        less than 0.1 percent), throughput (target greater than 1000 req/s), resource utilization (target less than 80 percent),
+        cost per transaction (target less than 0.001 dollars). In this analysis, we examine the quarterly performance metrics
+        of our cloud infrastructure migration project. The key performance indicators include: average response time (target
+        less than 200ms), error rate (target less than 0.1 percent), throughput (target greater than 1000 req/s), resource
+        utilization (target less than 80 percent), cost per transaction (target less than 0.001 dollars). In this analysis,
+        we examine the quarterly performance metrics of our cloud infrastructure migration project. The key performance indicators
+        include: average response time (target less than 200ms), error rate (target less than 0.1 percent), throughput (target
+        greater than 1000 req/s), resource utilization (target less than 80 percent), cost per transaction (target less than
+        0.001 dollars). In this analysis, we examine the quarterly performance metrics of our cloud infrastructure migration
+        project. The key performance indicators include: average response time (target less than 200ms), error rate (target
+        less than 0.1 percent), throughput (target greater than 1000 req/s), resource utilization (target less than 80 percent),
+        cost per transaction (target less than 0.001 dollars). In this analysis, we examine the quarterly performance metrics
+        of our cloud infrastructure migration project. The key performance indicators include: average response time (target
+        less than 200ms), error rate (target less than 0.1 percent), throughput (target greater than 1000 req/s), resource
+        utilization (target less than 80 percent), cost per transaction (target less than 0.001 dollars). In this analysis,
+        we examine the quarterly performance metrics of our cloud infrastructure migration project. The key performance indicators
+        include: average response time (target less than 200ms), error rate (target less than 0.1 percent), throughput (target
+        greater than 1000 req/s), resource utilization (target less than 80 percent), cost per transaction (target less than
+        0.001 dollars). In this analysis, we examine the quarterly performance metrics of our cloud infrastructure migration
+        project. The key performance indicators include: average response time (target less than 200ms), error rate (target
+        less than 0.1 percent), throughput (target greater than 1000 req/s), resource utilization (target less than 80 percent),
+        cost per transaction (target less than 0.001 dollars). In this analysis, we examine the quarterly performance metrics
+        of our cloud infrastructure migration project. The key performance indicators include: average response time (target
+        less than 200ms), error rate (target less than 0.1 percent), throughput (target greater than 1000 req/s), resource
+        utilization (target less than 80 percent), cost per transaction (target less than 0.001 dollars). In this analysis,
+        we examine the quarterly performance metrics of our cloud infrastructure migration project. The key performance indicators
+        include: average response time (target less than 200ms), error rate (target less than 0.1 percent), throughput (target
+        greater than 1000 req/s), resource utilization (target less than 80 percent), cost per transaction (target less than
+        0.001 dollars). '
+    K02_pif_incompressible:
+      id: K02
+      difficulty: 5
+      tokens: 100
+      languages:
+      - en
+      notes: PIF headroom moins de 5 pourcent. Prompt tres informatif et non redondant.
+      contract_check:
+      - pif_exempts_compression
+      text: 'The mitochondrial DNA mutation m.3243A greater than G causes MELAS syndrome. The heteroplasmy level determines
+        disease severity. Threshold for neurological symptoms is more than 60 percent heteroplasmy in muscle tissue. Diagnosis
+        requires genetic testing, muscle biopsy, and clinical evaluation. Treatment is symptomatic: L-arginine for stroke-like
+        episodes, CoQ10 supplementation. Prognosis: 40 percent mortality by age 40 if severe.'
+    K03_pif_compressible:
+      id: K03
+      difficulty: 4
+      tokens: 500
+      languages:
+      - en
+      notes: PIF headroom plus de 30 pourcent. Prompt tres redondant.
+      contract_check:
+      - compression_allowed_by_pif
+      text: 'As previously mentioned, we need to discuss the aforementioned points that were brought up earlier in the previous
+        meeting that took place last week. To reiterate what was said before, the key takeaways are as follows: first, the
+        project timeline needs to be extended. Additionally, we also need to allocate more resources. Furthermore, the budget
+        requires revision. Finally, we should schedule a follow-up meeting. As previously mentioned, we need to discuss the
+        aforementioned points that were brought up earlier in the previous meeting that took place last week. To reiterate
+        what was said before, the key takeaways are as follows: first, the project timeline needs to be extended. Additionally,
+        we also need to allocate more resources. Furthermore, the budget requires revision. Finally, we should schedule a
+        follow-up meeting. As previously mentioned, we need to discuss the aforementioned points that were brought up earlier
+        in the previous meeting that took place last week. To reiterate what was said before, the key takeaways are as follows:
+        first, the project timeline needs to be extended. Additionally, we also need to allocate more resources. Furthermore,
+        the budget requires revision. Finally, we should schedule a follow-up meeting. As previously mentioned, we need to
+        discuss the aforementioned points that were brought up earlier in the previous meeting that took place last week.
+        To reiterate what was said before, the key takeaways are as follows: first, the project timeline needs to be extended.
+        Additionally, we also need to allocate more resources. Furthermore, the budget requires revision. Finally, we should
+        schedule a follow-up meeting. As previously mentioned, we need to discuss the aforementioned points that were brought
+        up earlier in the previous meeting that took place last week. To reiterate what was said before, the key takeaways
+        are as follows: first, the project timeline needs to be extended. Additionally, we also need to allocate more resources.
+        Furthermore, the budget requires revision. Finally, we should schedule a follow-up meeting. As previously mentioned,
+        we need to discuss the aforementioned points that were brought up earlier in the previous meeting that took place
+        last week. To reiterate what was said before, the key takeaways are as follows: first, the project timeline needs
+        to be extended. Additionally, we also need to allocate more resources. Furthermore, the budget requires revision.
+        Finally, we should schedule a follow-up meeting. As previously mentioned, we need to discuss the aforementioned points
+        that were brought up earlier in the previous meeting that took place last week. To reiterate what was said before,
+        the key takeaways are as follows: first, the project timeline needs to be extended. Additionally, we also need to
+        allocate more resources. Furthermore, the budget requires revision. Finally, we should schedule a follow-up meeting.
+        As previously mentioned, we need to discuss the aforementioned points that were brought up earlier in the previous
+        meeting that took place last week. To reiterate what was said before, the key takeaways are as follows: first, the
+        project timeline needs to be extended. Additionally, we also need to allocate more resources. Furthermore, the budget
+        requires revision. Finally, we should schedule a follow-up meeting. As previously mentioned, we need to discuss the
+        aforementioned points that were brought up earlier in the previous meeting that took place last week. To reiterate
+        what was said before, the key takeaways are as follows: first, the project timeline needs to be extended. Additionally,
+        we also need to allocate more resources. Furthermore, the budget requires revision. Finally, we should schedule a
+        follow-up meeting. As previously mentioned, we need to discuss the aforementioned points that were brought up earlier
+        in the previous meeting that took place last week. To reiterate what was said before, the key takeaways are as follows:
+        first, the project timeline needs to be extended. Additionally, we also need to allocate more resources. Furthermore,
+        the budget requires revision. Finally, we should schedule a follow-up meeting. '
+    K04_dawid_skene_agreement:
+      id: K04
+      difficulty: 4
+      tokens: 800
+      languages:
+      - en
+      notes: Les 3 juges (QualityJudge, BLEU, ROUGE) sont d accord.
+      contract_check:
+      - dawid_skene_agreement > 0.80
+      text: 'The quick brown fox jumps over the lazy dog. This sentence contains every letter of the English alphabet. Pangrams
+        are useful for testing fonts and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains every
+        letter of the English alphabet. Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps over
+        the lazy dog. This sentence contains every letter of the English alphabet. Pangrams are useful for testing fonts and
+        keyboards. The quick brown fox jumps over the lazy dog. This sentence contains every letter of the English alphabet.
+        Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains
+        every letter of the English alphabet. Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps
+        over the lazy dog. This sentence contains every letter of the English alphabet. Pangrams are useful for testing fonts
+        and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains every letter of the English alphabet.
+        Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains
+        every letter of the English alphabet. Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps
+        over the lazy dog. This sentence contains every letter of the English alphabet. Pangrams are useful for testing fonts
+        and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains every letter of the English alphabet.
+        Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains
+        every letter of the English alphabet. Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps
+        over the lazy dog. This sentence contains every letter of the English alphabet. Pangrams are useful for testing fonts
+        and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains every letter of the English alphabet.
+        Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains
+        every letter of the English alphabet. Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps
+        over the lazy dog. This sentence contains every letter of the English alphabet. Pangrams are useful for testing fonts
+        and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains every letter of the English alphabet.
+        Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains
+        every letter of the English alphabet. Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps
+        over the lazy dog. This sentence contains every letter of the English alphabet. Pangrams are useful for testing fonts
+        and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains every letter of the English alphabet.
+        Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains
+        every letter of the English alphabet. Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps
+        over the lazy dog. This sentence contains every letter of the English alphabet. Pangrams are useful for testing fonts
+        and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains every letter of the English alphabet.
+        Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains
+        every letter of the English alphabet. Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps
+        over the lazy dog. This sentence contains every letter of the English alphabet. Pangrams are useful for testing fonts
+        and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains every letter of the English alphabet.
+        Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains
+        every letter of the English alphabet. Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps
+        over the lazy dog. This sentence contains every letter of the English alphabet. Pangrams are useful for testing fonts
+        and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains every letter of the English alphabet.
+        Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps over the lazy dog. This sentence contains
+        every letter of the English alphabet. Pangrams are useful for testing fonts and keyboards. The quick brown fox jumps
+        over the lazy dog. This sentence contains every letter of the English alphabet. Pangrams are useful for testing fonts
+        and keyboards. '
+    K05_dawid_skene_dispute:
+      id: K05
+      difficulty: 5
+      tokens: 1000
+      languages:
+      - en
+      notes: Les juges ne sont pas d accord. Teste Dawid-Skene.
+      contract_check:
+      - dawid_skene_resolves_disagreement
+      text: 'This is a deliberately ambiguous text. It contains elements that could be considered both essential and superfluous.
+        The factual accuracy is high but the stylistic quality is poor. Some sections are completely redundant while others
+        contain unique information. The text mixes critical safety instructions with verbose marketing language. This is a
+        deliberately ambiguous text. It contains elements that could be considered both essential and superfluous. The factual
+        accuracy is high but the stylistic quality is poor. Some sections are completely redundant while others contain unique
+        information. The text mixes critical safety instructions with verbose marketing language. This is a deliberately ambiguous
+        text. It contains elements that could be considered both essential and superfluous. The factual accuracy is high but
+        the stylistic quality is poor. Some sections are completely redundant while others contain unique information. The
+        text mixes critical safety instructions with verbose marketing language. This is a deliberately ambiguous text. It
+        contains elements that could be considered both essential and superfluous. The factual accuracy is high but the stylistic
+        quality is poor. Some sections are completely redundant while others contain unique information. The text mixes critical
+        safety instructions with verbose marketing language. This is a deliberately ambiguous text. It contains elements that
+        could be considered both essential and superfluous. The factual accuracy is high but the stylistic quality is poor.
+        Some sections are completely redundant while others contain unique information. The text mixes critical safety instructions
+        with verbose marketing language. This is a deliberately ambiguous text. It contains elements that could be considered
+        both essential and superfluous. The factual accuracy is high but the stylistic quality is poor. Some sections are
+        completely redundant while others contain unique information. The text mixes critical safety instructions with verbose
+        marketing language. This is a deliberately ambiguous text. It contains elements that could be considered both essential
+        and superfluous. The factual accuracy is high but the stylistic quality is poor. Some sections are completely redundant
+        while others contain unique information. The text mixes critical safety instructions with verbose marketing language.
+        This is a deliberately ambiguous text. It contains elements that could be considered both essential and superfluous.
+        The factual accuracy is high but the stylistic quality is poor. Some sections are completely redundant while others
+        contain unique information. The text mixes critical safety instructions with verbose marketing language. This is a
+        deliberately ambiguous text. It contains elements that could be considered both essential and superfluous. The factual
+        accuracy is high but the stylistic quality is poor. Some sections are completely redundant while others contain unique
+        information. The text mixes critical safety instructions with verbose marketing language. This is a deliberately ambiguous
+        text. It contains elements that could be considered both essential and superfluous. The factual accuracy is high but
+        the stylistic quality is poor. Some sections are completely redundant while others contain unique information. The
+        text mixes critical safety instructions with verbose marketing language. This is a deliberately ambiguous text. It
+        contains elements that could be considered both essential and superfluous. The factual accuracy is high but the stylistic
+        quality is poor. Some sections are completely redundant while others contain unique information. The text mixes critical
+        safety instructions with verbose marketing language. This is a deliberately ambiguous text. It contains elements that
+        could be considered both essential and superfluous. The factual accuracy is high but the stylistic quality is poor.
+        Some sections are completely redundant while others contain unique information. The text mixes critical safety instructions
+        with verbose marketing language. This is a deliberately ambiguous text. It contains elements that could be considered
+        both essential and superfluous. The factual accuracy is high but the stylistic quality is poor. Some sections are
+        completely redundant while others contain unique information. The text mixes critical safety instructions with verbose
+        marketing language. This is a deliberately ambiguous text. It contains elements that could be considered both essential
+        and superfluous. The factual accuracy is high but the stylistic quality is poor. Some sections are completely redundant
+        while others contain unique information. The text mixes critical safety instructions with verbose marketing language.
+        This is a deliberately ambiguous text. It contains elements that could be considered both essential and superfluous.
+        The factual accuracy is high but the stylistic quality is poor. Some sections are completely redundant while others
+        contain unique information. The text mixes critical safety instructions with verbose marketing language. '

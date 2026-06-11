@@ -1,6 +1,7 @@
 """ACE Decision Engine — choisit le profil de compression optimal."""
 
 import logging
+import math
 from typing import Dict, List, Optional, Tuple
 
 from backend.ace.features import extract_features
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 MIN_QUALITY_THRESHOLD = 0.80
 COLD_START_QUALITY = 0.85
+UCB_BETA = 1.5
 
 
 class Decider:
@@ -127,36 +129,52 @@ class Decider:
         )
         price = self.get_token_price(model)
 
-        alternatives = []
+        # UCB Non-Monotone Cascade: trier les taux par UCB décroissant
+        # au lieu d'un parcours linéaire par agressivité
+        def _ucb_score(rate: float, cell: CellState) -> float:
+            if cell.n_samples < 1:
+                return float('inf')
+            ucb = cell.expected_quality + UCB_BETA * math.sqrt(cell.variance) / max(cell.n_samples, 1, 1)
+            return ucb
+
+        candidates = []
         for rate in RATES:
             if rate > sanctuary_max_rate:
-                continue  # Sanctuary interdit ce taux
+                continue
             cell = cells.get(rate)
             if cell is None:
                 continue
+            candidates.append((rate, cell))
+
+        # Trier par UCB décroissant (explorer l'incertain, exploiter le sûr)
+        candidates.sort(key=lambda x: -_ucb_score(x[0], x[1]))
+
+        # Cascade : premier candidat valide gagne
+        chosen_rate = None
+        chosen_cell = None
+        for rate, cell in candidates:
             u = self.compute_utility(rate, token_count, price, cell, features)
-            alternatives.append((rate, u, cell))
+            if self.is_valid(rate, u, token_count, price, cell, features):
+                chosen_rate = rate
+                chosen_cell = cell
+                break
 
-        valid = [(r, u, c) for r, u, c in alternatives
-                 if self.is_valid(r, u, token_count, price, c, features)]
-
-        if not valid:
+        if chosen_rate is None:
             return "bypass", False, 0.0
 
-        best_rate, best_utility, best_cell = max(valid, key=lambda x: x[1])
-
-        explore, chosen_rate = self._explore_or_exploit(
-            best_rate, best_cell, cells, token_count, price,
+        # Exploration : si le meilleur candidat a de l'incertitude, explorer
+        explore, explore_rate = self._explore_or_exploit(
+            chosen_rate, chosen_cell, cells, token_count, price,
             contract_age_days, tenant_allows_exploration,
         )
         if explore:
-            chosen_cell = cells.get(chosen_rate)
-            if chosen_cell:
-                chosen_cell.n_explorations += 1
-                write_cell(chosen_cell)
-            return RATE_TO_PROFILE[chosen_rate], True, chosen_rate
+            explore_cell = cells.get(explore_rate)
+            if explore_cell:
+                explore_cell.n_explorations += 1
+                write_cell(explore_cell)
+            return RATE_TO_PROFILE[explore_rate], True, explore_rate
 
-        return RATE_TO_PROFILE[best_rate], False, best_rate
+        return RATE_TO_PROFILE[chosen_rate], False, chosen_rate
 
     def _explore_or_exploit(
         self, best_rate: float, best_cell: CellState,
@@ -211,6 +229,8 @@ class Decider:
                 tokens_compressed=tokens_compressed,
                 latency_ms=latency_ms,
                 was_exploration=was_exploration,
+                pif_headroom=features.get("pif_headroom"),
+                integrity_passed=features.get("integrity_passed", True),
             )
         except Exception as e:
             logger.warning("ACE record_request failed: %s", e)

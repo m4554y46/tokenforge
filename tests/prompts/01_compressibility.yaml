@@ -1,0 +1,55 @@
+compressibility:
+  description: Bornes de la compression - tests de compressibilite theorique
+  prompts:
+    C01_trivial:
+      id: C01
+      difficulty: 1
+      tokens: 2
+      languages:
+      - en
+      known_frontier:
+        cold_start: bypass
+      text: Hello
+    C02_incompressible_short:
+      id: C02
+      difficulty: 3
+      tokens: 12
+      languages:
+      - en
+      contract_check:
+      - entity_recall > 0.95
+      text: Liste tous les entiers premiers entre 2 et 97
+    C03_already_concise:
+      id: C03
+      difficulty: 2
+      tokens: 5
+      languages:
+      - en
+      text: Return max(arr)
+    C04_highly_redundant:
+      id: C04
+      difficulty: 1
+      tokens: 60
+      languages:
+      - en
+      text: 'Le contexte commercial actuel necessite une analyse approfondie des tendances du marche. Le contexte commercial
+        actuel necessite une analyse approfondie des tendances du marche. Le contexte commercial actuel necessite une analyse
+        approfondie des tendances du marche. Le contexte commercial actuel necessite une analyse approfondie des tendances
+        du marche. Le contexte commercial actuel necessite une analyse approfondie des tendances du marche. Le contexte commercial
+        actuel necessite une analyse approfondie des tendances du marche. Le contexte commercial actuel necessite une analyse
+        approfondie des tendances du marche. Le contexte commercial actuel necessite une analyse approfondie des tendances
+        du marche. Le contexte commercial actuel necessite une analyse approfondie des tendances du marche. Le contexte commercial
+        actuel necessite une analyse approfondie des tendances du marche. '
+    C05_frontier_exact:
+      id: C05
+      difficulty: 3
+      tokens: 200
+      languages:
+      - en
+      known_frontier:
+        cold_start: bypass
+        learned: light
+      text: Analyze the following data and provide recommendations. The data shows a clear trend of increasing user engagement
+        across all platforms. Mobile usage has grown by 45 percent year over year, while desktop remains stable. The key metric
+        to focus on is daily active users, which has shown consistent growth of 12 percent month over month. Please provide
+        specific recommendations for improving retention rates among new users acquired through social media channels.

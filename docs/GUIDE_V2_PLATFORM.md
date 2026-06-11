@@ -470,81 +470,348 @@ client.chat.completions.create(model="gpt-4o", messages=[...])
 
 **Objectif :** Choisir dynamiquement le meilleur taux de compression pour
 chaque requête LLM, en maximisant la marge économique nette sous contrainte
-de qualité.
+de qualité **garantie contractuellement**.
 
-### Principe
+**Principe :** Au lieu d'appliquer un profil fixe (ex. `balanced` à toutes
+les requêtes), ACE est un **bandit contextuel augmenté de 6 gates
+contractuelles** qui forment une chaîne de garanties avant/pendant/après
+la compression :
 
-Au lieu d'appliquer un profil fixe (ex. `balanced` à toutes les requêtes),
-ACE est un **bandit contextuel** qui apprend la fonction d'utilité :
+```
+PIF pre-check               →   headroom < 5% → bypass (exemption)
+Sanctuary                   →   contenu protégé → plafonnement
+UCB Cascade (non-monotone)  →   explore/exploit par UCB décroissant
+Entropy Gate (quenching)    →   threshold adaptatif dans KOMPRESS
+Integrity Gate (post-check) →   4 vérifications : ratio, entropie, structure, non-vide
+Reconstruction Monitor      →   factual_loss < 15%
+Oracle (AND-logic)          →   5 dimensions toutes ≥ seuil
+Dawid-Skene (consensus)     →   fiabilité estimée des juges
+Drift Detector (MMD)        →   surveillance distributionnelle
+```
+
+### Fonction d'utilité
 
 $$U(r,x) = S(r,x) \cdot TF_{share} - C_{TF}(r) - [1 - g(r,x)] \cdot C_{fail}$$
 
-et choisit $r^* = \arg\max U(r,x)$, avec la possibilité de ne pas compresser
+ACE choisit le premier taux $r$ dont $U(r,x) > 0$ selon l'ordre UCB
+décroissant (cascade non-monotone), avec la possibilité de ne pas compresser
 ($r=0$) si l'utilité est négative.
 
-### Les 5 couches d'ACE
+### Les 11 couches d'ACE
 
-| Couche | Fichier | Description | Originalité |
-|--------|---------|-------------|-------------|
-| **Quality Model** | `models/quality_model.py` | LightGBM qui prédit $P(qualité \mid x, r, s)$ | Pseudo-labels depuis signaux, ONNX export |
-| **Cell State** | `state.py` | Mémoire $(tenant, cluster, task, length, model, rate) \to qualité$ | LRU 10k, cold-start embeddings |
-| **Exploration KG** | `exploration.py` | Knowledge Gradient : explore si l'info peut changer $r^*$ | Pas de ε-greedy, pas d'UCB |
-| **Attribution** | `attribution.py` | Cause du signal : compression vs LLM vs user vs contexte | Bayésienne à 4 causes |
-| **Embeddings** | `embeddings.py` | Factorisation SVD $contextes \times taux$ | Cold-start par comportement, pas par sémantique |
+| # | Couche | Fichier | Description | Nouveauté |
+|---|--------|---------|-------------|-----------|
+| 1 | **PIF** | `pif.py` | Prompt Information Footprint : estime la compressibilité théorique via entropie + redondance + contenu protégé | ✅ Phase 2 |
+| 2 | **Sanctuary** | `sanctuary.py` | Détecte contenu protégé (code, JSON, LaTeX, tableaux, YAML) et plafonne le taux max | Legacy |
+| 3 | **UCB Cascade** | `decider.py` | Tri des taux par UCB décroissant (au lieu de linéaire), exploration KG intégrée | ✅ Phase 2 |
+| 4 | **Quality Model** | `models/quality_model.py` | LightGBM qui prédit $P(qualité \mid x, r, s)$ | Legacy |
+| 5 | **Cell State** | `state.py` | Mémoire $(tenant, cluster, task, length, model, rate) \to qualité$ | Legacy |
+| 6 | **Entropy Gate** | `integrity_gate.py` | Floor adaptatif basé sur l'entropie du prompt (remplace le 15% fixe dans KOMPRESS) | ✅ Phase 2 |
+| 7 | **Integrity Gate** | `integrity_gate.py` | 4 vérifications post-compression : ratio tokens, effondrement entropique, intégrité structurelle, sortie non-vide | ✅ Phase 2 |
+| 8 | **Reconstruction Monitor** | `reconstruction_monitor.py` | Sépare factual_loss (compression artifact) de novelty_gain (créativité LLM) | ✅ Phase 2 |
+| 9 | **Quality Oracle** | `oracle.py` | Évaluation AND-logique : chaque dimension (5) doit passer son seuil individuellement | ✅ Phase 2 |
+| 10 | **Ensemble Judge** | `ensemble_judge.py` | Dawid-Skene EM : consensus entre 4 juges (GPT-4o, BLEU, ROUGE-L, heuristic) + fiabilité estimée | ✅ Phase 2 |
+| 11 | **Drift Detector** | `drift_detector.py` | MMD test avec noyau RBF, fenêtre glissante 100 échantillons, permutation test p-value | ✅ Phase 2 |
 
-### `backend/ace/decider.py`
+---
 
-**Rôle :** Moteur de décision principal. Reçoit les features, lit les cellules,
-calcule l'utilité, décide d'explorer ou non, et retourne le profil choisi.
+### `backend/ace/pif.py` — Prompt Information Footprint
+
+**Rôle :** Estimer la compressibilité théorique d'un prompt *avant*
+compression, via trois métriques :
+
+- **Entropie empirique** (Shannon, 4-grams) — densité d'information
+- **Redondance lexicale** — ratio types/tokens normalisé
+- **Contenu protégé** — ratio détecté par Sanctuary
+
+**Formule :**
+$$PIF = H_{norm} \cdot (1 - R_{lex}) + P_{protégé} \cdot 0.5$$
+$$Headroom = 1.0 - PIF$$
+
+**Classe `PIFResult` :**
+
+| Attribut | Description |
+|----------|-------------|
+| `headroom` | Taux de compressibilité estimé [0, 1] |
+| `entropy` | Entropie empirique normalisée |
+| `redundancy` | Redondance lexicale [0, 1] |
+| `protected_ratio` | Fraction de contenu protégé |
+| `is_compressible` | `headroom >= 0.05` |
 
 **Fonctions :**
 
 | Fonction | Description |
 |----------|-------------|
-| `decide(features, force_profile, contract_age_days, tenant_allows_exploration)` | Retourne `(profile, was_exploration, rate)` |
-| `compute_utility(rate, token_count, price, cell, features)` | Calcule $U(r,x)$ |
-| `is_valid(rate, utility, token_count, price, cell, features)` | Vérifie contraintes (qualité ≥ 0.80, client savings ≥ $0.001) |
+| `compute_footprint(prompt)` | Calcule PIF + headroom |
+| `is_incompressible(pif)` | True si headroom < 5% → exemption |
+
+**Intégration proxy :** Appelé dans `proxy.py` avant `decider.decide()`. Si
+PIF headroom < 5%, bypass direct sans compression. Compteur
+`pif_bypass_count` dans les stats.
+
+---
+
+### `backend/ace/decider.py` — UCB Non-Monotone Cascade
+
+**Rôle :** Moteur de décision avec **cascade UCB** au lieu de la recherche
+linéaire par agressivité.
+
+**Principe :** Pour chaque taux candidat, calculer le score UCB :
+
+$$UCB(r) = g(r) + \beta \cdot \frac{\sqrt{Var[g(r)]}}{n_r}$$
+
+Trier les 6 taux par UCB décroissant. Le premier candidat valide ($U > 0$,
+qualité $\geq$ 0.80, client savings $\geq$ seuil) est choisi. Cela permet :
+
+- D'**explorer les taux incertains** (variance élevée $=$ priorité haute)
+- D'**exploiter les taux connus** (qualité élevée = candidat sérieux)
+- De choisir un taux **moins agressif** mais plus fiable si UCB supérieur
+  (cascade non-monotone)
+
+**Fonctions :**
+
+| Fonction | Description |
+|----------|-------------|
+| `decide(features, ...)` | UCB cascade → `(profile, was_exploration, rate)` |
+| `compute_utility(rate, ...)` | Calcule $U(r,x)$ |
+| `is_valid(rate, ...)` | Vérifie contraintes (qualité ≥ 0.80, client savings) |
 | `on_response(...)` | Enregistre la requête + session après compression |
-| `on_next_request(session_id, user_id, tenant_id, current_prompt, previous_features, previous_rate)` | Détecte signaux, attribue cause, met à jour cellule |
+| `on_next_request(...)` | Détecte signaux, attribue cause, met à jour cellule |
 
-**Décision détaillée /api/v2/ace/explain :**
-```json
-{
-  "features": { "task_type": "analytique", "specificity": "domain_jargon", ... },
-  "token_count": 250,
-  "token_price": 0.000005,
-  "explanations": [
-    { "profile": "aggressive", "rate": 0.60,
-      "expected_quality": 0.94, "n_samples": 45,
-      "savings_usd": 0.000750, "cost_tf": 0.00030,
-      "risk_usd": 0.00120, "utility": 0.000755, "valid": true },
-    ...
-  ],
-  "recommendation": { "profile": "aggressive", "utility": 0.000755 }
-}
-```
+**Exploration KG** : même mécanisme que précédemment (Knowledge Gradient),
+explore si l'incertitude peut changer $r^*$. Conditions : contrat ≥ 90 jours.
 
-### `backend/ace/features.py`
+**Sanctuary** : toujours appliqué avant la cascade — les taux >
+`sanctuary_max_rate` sont exclus des candidats.
+
+---
+
+### `backend/ace/integrity_gate.py` — Entropy Gate + Integrity Gate
+
+**Rôle :** Deux gates complémentaires qui s'assurent que la compression
+produit une sortie valide.
+
+#### Entropy Gate (pre-compression)
+
+Calcule un **threshold dynamique** pour KOMPRESS en fonction de l'entropie
+du prompt, remplaçant le 15% fixe antérieur :
+
+$$floor = 0.10 + H_{norm} \cdot 0.20 + P_{protégé} \cdot 0.15$$
+
+- Prompt redondant ($H$ bas) → floor bas → compression agressive
+- Prompt dense ($H$ haut) → floor haut → compression conservatrice
+
+**Fonction :** `quenching_threshold(prompt)` → float [0.05, 0.50]
+
+#### Integrity Gate (post-compression)
+
+4 vérifications indépendantes :
+
+| Vérification | Seuil | Détecte |
+|-------------|-------|---------|
+| Token ratio | $|c| / |o| \geq 0.15$ | Vidage complet |
+| Entropy collapse | $H_c / H_o \geq 0.20$ | Sortie sans structure |
+| Structure integrity | Patterns (code/JSON/YAML) préservés | Fences cassés |
+| Non-empty | $len(c) \geq 3$ car. | Sortie vide |
+
+**Fonctions :**
+
+| Fonction | Description |
+|----------|-------------|
+| `estimate_safe_threshold(prompt)` | Seuil adaptatif pré-compression |
+| `validate_compression(original, compressed)` | Post-check → `IntegrityResult` |
+| `quenching_threshold(prompt)` | Floor dynamique pour KOMPRESS |
+
+**Intégration :** `validate_compression()` appelé dans `proxy.py` après la
+compression. Si échec, fallback vers le texte original + compteur
+`integrity_fallback_count`.
+
+---
+
+### `backend/ace/reconstruction_monitor.py` — Reconstruction Monitor
+
+**Rôle :** Sépare la **perte factuelle** (dommage dû à la compression) du
+**gain créatif** (nouveauté introduite par le LLM).
+
+**Méthode :**
+- Extrait les éléments factuels du prompt original (dates, nombres, emails,
+  URLs, entités nommées)
+- Compare leur présence dans le prompt compressé → `factual_loss`
+- Détecte les marqueurs de nouveauté dans la réponse → `novelty_gain`
+- Si `factual_loss > 0.15`, la compression a probablement endommagé le prompt
+
+**Classe `ReconstructionResult` :**
+
+| Attribut | Description |
+|----------|-------------|
+| `factual_loss` | Perte d'éléments factuels [0, 1] |
+| `novelty_gain` | Gain créatif dans la réponse [0, 1] |
+| `reconstruction_score` | `1.0 - factual_loss` |
+| `is_acceptable` | `factual_loss <= 0.15` |
+
+**Fonctions :**
+
+| Fonction | Description |
+|----------|-------------|
+| `analyze(original, compressed, ref_response, comp_response)` | Calcule perte/gain |
+| `should_retry(result)` | True si factual_loss > 0.15 ET novelty_gain < loss |
+
+**Intégration :** Exécuté en post-réponse dans `proxy.py` (non-streaming).
+Log warning si `is_acceptable = False`.
+
+---
+
+### `backend/ace/oracle.py` — Quality Oracle (AND-logic)
+
+**Rôle :** Évaluer la qualité avec une **logique AND** : chaque dimension
+doit passer son seuil individuellement. Pas de moyenne — pas de gaming.
+
+**Seuils AND par dimension :**
+
+| Dimension | Seuil | Interprétation |
+|-----------|:-----:|----------------|
+| Exactitude factuelle | 0.80 | Les faits/chiffres sont préservés |
+| Complétude | 0.75 | Tous les points clés sont dans la réponse |
+| Cohérence | 0.70 | Le raisonnement est logique |
+| Fidélité | 0.85 | Pas de contradiction avec la référence |
+| Style | 0.60 | Le ton et le niveau de détail sont similaires |
+
+**Logique :**
+$$Oracle = \begin{cases}
+1.0 & \text{si } \forall d : score_d \geq seuil_d \\
+\min(score_d) & \text{sinon}
+\end{cases}$$
+
+**Classe `OracleResult` :**
+
+| Attribut | Description |
+|----------|-------------|
+| `passed` | AND-logic : toutes les dimensions passent |
+| `dimensions` | Scores par dimension |
+| `score` | `1.0` si passed, sinon `min(dimensions)` |
+| `failure_dimensions` | Liste des dimensions sous seuil |
+
+**Fonctions :**
+
+| Fonction | Description |
+|----------|-------------|
+| `evaluate(prompt, response_a, response_b)` | Score AND-logic |
+| `is_contract_compliant(result)` | `result.passed` |
+
+---
+
+### `backend/ace/ensemble_judge.py` — Ensemble Judge Dawid-Skene
+
+**Rôle :** Agréger les avis de 4 juges via l'algorithme EM de Dawid-Skene
+pour obtenir un consensus robuste, avec estimation de la fiabilité de chaque
+juge.
+
+**Juges :**
+
+| Juge | Métrique | Fiabilité initiale |
+|------|----------|:------------------:|
+| GPT-4o | QualityJudge existant | 0.90 |
+| BLEU | Précision n-gram (n=1-4, pénalité bréveté) | 0.75 |
+| ROUGE-L | F1 basé sur la plus longue sous-séquence commune | 0.70 |
+| Heuristic | Jaccard + bigram + length ratio | 0.65 |
+
+**Algorithme Dawid-Skene EM :**
+
+1. **E-step** : estimer la vraie qualité à partir des scores pondérés par
+   les fiabilités actuelles
+2. **M-step** : mettre à jour la fiabilité de chaque juge (1 - erreur)
+3. Itérer jusqu'à convergence ($\Delta < 10^{-4}$, max 20 itérations)
+
+**Classe `DawidSkeneResult` :**
+
+| Attribut | Description |
+|----------|-------------|
+| `consensus_score` | Score agrégé [0, 1] |
+| `judge_reliabilities` | Fiabilité estimée par juge |
+| `n_iterations` | Nombre d'itérations EM |
+| `converged` | True si convergence atteinte |
+
+**Fonctions :**
+
+| Fonction | Description |
+|----------|-------------|
+| `evaluate(prompt, response_a, response_b)` | Consensus + fiabilités |
+| `get_judge_reliability(name)` | Fiabilité d'un juge spécifique |
+
+**Avantage :** Si un juge donne un score aberrant (ex. BLEU très bas sur
+contenu créatif), Dawid-Skene le pondère automatiquement à ~0, le consensus
+repose sur les juges fiables.
+
+---
+
+### `backend/ace/drift_detector.py` — Drift Detector MMD
+
+**Rôle :** Détecter le **drift distributionnel** entre le set de calibrage
+(entraînement) et les échantillons de production via Maximum Mean
+Discrepancy (MMD) avec noyau RBF.
+
+**Méthode :**
+- Convertit les features (task, specificity, length, token_count, cluster)
+  en vecteurs numériques
+- **MMD$^2$** = $K_{XX} + K_{YY} - 2K_{XY}$ (estimateur non-biaisé)
+- **Permutation test** (500 itérations) → p-value
+- Alerte si MMD > 0.05 ET p-value < 0.05
+- Fenêtre glissante : 100 derniers échantillons de production
+
+**Classe `DriftResult` :**
+
+| Attribut | Description |
+|----------|-------------|
+| `drift_detected` | True si MMD > threshold |
+| `mmd_value` | MMD$^2$ observé |
+| `p_value` | p-value du test de permutation |
+| `window_size` | Nombre d'échantillons de production |
+
+**Classe `DriftDetector` :**
+
+| Méthode | Description |
+|---------|-------------|
+| `set_calibration(features)` | Définit le set de calibration |
+| `record_sample(features)` | Ajoute un échantillon à la fenêtre |
+| `detect()` | Test MMD → `DriftResult` ou None |
+| `get_status()` | État courant du drift |
+| `reset_production_window()` | Vide la fenêtre |
+
+**Intégration :** Activé par `FORGE_DRIFT_ENABLED=1`. Chaque requête
+enregistre un sample. Interrogeable via `get_status()` pour le dashboard.
+
+---
+
+### Modules existants (conservés)
+
+Les modules suivants sont inchangés et conservent leur documentation
+antérieure. Seules leurs interactions avec les nouveaux modules sont
+décrites ici.
+
+| Module | Fichier | Interaction avec les nouvelles gates |
+|--------|---------|--------------------------------------|
+| **Sanctuary** | `sanctuary.py` | Alimente `pif.py` (protected_ratio) et reste dans le pipeline pré-UCB |
+| **Signals** | `signals.py` | Non modifié — toujours appelé entre requêtes consécutives |
+| **Quality Model** | `models/quality_model.py` | Non modifié — prédiction qualité avec/sans signaux |
+| **Attribution** | `attribution.py` | Non modifié — toujours utilisé pour filtrer les mise à jour de cellules |
+| **Exploration KG** | `exploration.py` | Non modifié — intégré dans UCB cascade via `_explore_or_exploit()` |
+| **Embeddings** | `embeddings.py` | Non modifié — cold-start pour cellules < 5 échantillons |
+| **Dashboard** | `dashboard.py` | Non modifié — agrège depuis `ace_states` et `ace_requests` |
+| **Onboarding** | `onboarding.py` | Non modifié — calculateur ROI interactif |
+| **Quality Judge** | `judge.py` | Réutilisé par `oracle.py` et `ensemble_judge.py` |
+
+### `backend/ace/features.py` — Feature extraction
 
 **Rôle :** Extrait le contexte de chaque requête en 4 dimensions.
 
 | Feature | Valeurs | Méthode |
 |---------|---------|---------|
-| `task_type` | `factuel`, `analytique`, `code`, `creatif`, `resume`, `traduction`, `instruction`, `general` | Détection par mots-clés |
-| `specificity` | `generic`, `domain_jargon`, `highly_specific` | Ratio de termes spécialisés |
-| `length_bucket` | `short`, `medium`, `long`, `very_long` | Seuils : 50, 200, 1000 tokens |
+| `task_type` | 8 valeurs | Détection par mots-clés |
+| `specificity` | `generic`, `domain_jargon`, `entity_rich` | Ratio de termes spécialisés |
+| `length_bucket` | `short`, `medium`, `long`, `very_long` | Seuils : 50, 500, 2000 tokens |
 | `user_cluster` | 0–19 (20 clusters) | Hash déterministe du `user_id` |
 
-**Utilisation :**
-```python
-from backend.ace.features import extract_features
-feats = extract_features(prompt, token_count, model="gpt-4o",
-                         user_id="alice", tenant_id="acme")
-# → {"task_type": "analytique", "specificity": "domain_jargon",
-#     "length_bucket": "medium", "user_cluster": 7, ...}
-```
-
-### `backend/ace/state.py`
+### `backend/ace/state.py` — Cell state & persistence
 
 **Rôle :** Persistance et cache des cellules d'état.
 
@@ -552,330 +819,100 @@ feats = extract_features(prompt, token_count, model="gpt-4o",
 
 | Attribut | Type | Défaut | Description |
 |----------|------|--------|-------------|
-| `rate` | float | requis | Taux de compression (0.0–0.75) |
+| `rate` | float | requis | Taux de compression (0.0–0.70) |
 | `quality_sum` | float | 0.0 | Somme pondérée des qualités observées |
 | `n_samples` | float | 0.0 | Nombre d'échantillons (poids) |
 | `n_explorations` | int | 0 | Requêtes en mode exploration |
 | `expected_quality` | float | calculée | `quality_sum / n_samples` (ou fallback) |
 
-**Fonctions principales :**
-
-| Fonction | Description |
-|----------|-------------|
-| `read_cell(tenant, cluster, task, length, model, rate)` | Lit une cellule (LRU cache, 10k entries) |
-| `read_cells_for_context(tenant, cluster, task, length, model)` | Lit toutes les cellules pour un contexte |
-| `write_cell(cell)` | Écrit/merge une cellule en DB |
-| `record_request(...)` | Enregistre la requête dans `ace_requests` |
-| `record_session(...)` | Enregistre dans `ace_sessions` |
-
 **Tables SQL :**
 
 | Table | Colonnes | Rôle |
 |-------|----------|------|
-| `ace_states` | `tenant_id, user_cluster, task_type, length_bucket, model, rate, quality_sum, n_samples, n_explorations` | Cellules d'état |
-| `ace_requests` | `id, tenant_id, user_id, session_id, task_type, specificity, length_bucket, user_cluster, model, provider, profile_chosen, rate_actual, tokens_original, tokens_compressed, latency_ms, was_exploration, signals_json, created_at` | Historique des requêtes |
-| `ace_sessions` | `session_id, tenant_id, user_id, prompt_hash, prompt_preview, response_hash, profile_chosen, created_at` | Sessions de chat |
-
-### `backend/ace/signals.py`
-
-**Rôle :** Détecte les signaux comportementaux entre requêtes consécutives.
-
-| Signal | Déclencheur | Fenêtre |
-|--------|-------------|---------|
-| `reformulation` | Token overlap ≥ 0.65 entre requête $N$ et $N+1$ | 30 secondes |
-| `continuation` | Nouvelle requête sans overlap fort, même session | 60 secondes |
-
-**Fonction :**
-```python
-from backend.ace.signals import detect_signals
-signal = detect_signals(session_id, user_id, tenant_id, current_prompt)
-# → SignalResult(reformulation=True, continuation=False,
-#                 quality_proxy=0.3, confidence=0.85)
-```
-
-### `backend/ace/models/quality_model.py`
-
-**Rôle :** LightGBM probabiliste qui prédit la qualité préservée.
-
-**Architecture des features (80–120 dimensions) :**
-- One-hot encodings : task (8), specificity (3), length (4), cluster (20), model (~10)
-- Scalars : rate, log(token_count), rate×model interactions
-- Avec signaux : quality_proxy, reformulation, continuation, confidence
-
-**Fonction :**
-```python
-from backend.ace.models.quality_model import get_model
-qm = get_model()
-q = qm.predict(features, signals)  # → [0, 1]
-```
-
-**Pseudo-labels (entraînement) :**
-
-| Condition | Label |
-|-----------|-------|
-| Reformulation sans continuation | 0.3 (échec probable) |
-| Continuation sans reformulation | 0.7 (succès probable) |
-| Aucun signal | 0.5 (incertain) |
-| Reformulation + continuation | 0.9 (contradictoire) |
-
-**API :**
-- `GET /api/v2/ace/train` — déclenche l'entraînement
-- `GET /api/v2/ace/status` — indique `quality_model_available: true/false`
-
-### `backend/ace/exploration.py`
-
-**Rôle :** Décide s'il faut explorer un taux alternatif (Knowledge Gradient).
-
-**Formule :**
-$$KG_j = \sigma_j \cdot \phi(\Delta_j/\sigma_j) + |\Delta_j| \cdot \Phi(|\Delta_j|/\sigma_j) - |\Delta_j|$$
-
-**Fonctions :**
-
-| Fonction | Description |
-|----------|-------------|
-| `knowledge_gradient(mean_j, var_j, other_means)` | KG pour un bras $j$ |
-| `should_explore(rate, expected_quality, variance, cells, token_count, price, contract_age, tenant_allows)` | (bool, KG_value) |
-| `pick_exploration_arm(cells, token_count, price, contract_age, tenant_allows)` | Retourne un taux à explorer ou None |
-
-**Conditions d'activation :**
-- Contrat ≥ 90 jours (pas d'exploration sur nouveaux clients)
-- Tenant autorise l'exploration
-- KG > 0 pour au moins un bras alternatif
-
-### `backend/ace/attribution.py`
-
-**Rôle :** Identifie la cause d'un signal pour éviter de pénaliser la
-compression pour des erreurs qui ne sont pas de son fait.
-
-**Modèle bayésien :**
-
-$$P(cause = c \mid s, x) = \frac{score_c}{\sum_k score_k}$$
-
-| Cause | Poids | Facteur |
-|-------|-------|---------|
-| Compression | 0.1 | $1 - g(r,x)$ |
-| Modèle LLM | 0.4 | $1 - reliability(model)$ |
-| Utilisateur | 0.3 | $1 - user\_history\_quality$ |
-| Contexte | 0.2 | $\min(complexité, 0.5) / 0.5$ |
-
-**Classe `AttributionResult` :**
-
-| Attribut | Description |
-|----------|-------------|
-| `cause` | `"compression"`, `"model"`, `"user"`, `"context"`, `"unknown"` |
-| `confidence` | Score normalisé [0, 1] |
-| `is_compression_failure` | True si cause = compression ET reformulation |
-| `details` | Dict des scores par cause |
-
-**Règle de mise à jour :**
-```python
-def should_update_quality(attribution):
-    if attribution.is_compression_failure: return True
-    if cause == "model" and confidence > 0.7: return False
-    if cause == "user" and confidence > 0.6: return False
-    return True  # cas ambigus
-```
-
-### `backend/ace/sanctuary.py`
-
-**Rôle :** Détecte le contenu protégé (code, JSON, LaTeX, tableaux markdown,
-YAML) dans le prompt et plafonne le taux de compression max autorisé pour
-éviter la corruption.
-
-**Seuils :**
-
-| Ratio protégé | Taux max | Profil max |
-|:---|---:|:---|
-| > 30 % | 0.15 | safe |
-| > 15 % | 0.25 | light |
-| > 5 % | 0.40 | balanced |
-
-**Fonctions :**
-
-| Fonction | Description |
-|----------|-------------|
-| `detect_protected_blocks(text)` | Liste des blocs détectés (type, start, end) |
-| `protected_ratio(text)` | Fraction du texte protégé [0, 1] |
-| `max_safe_rate(text)` | Taux max autorisé (1.0 = pas de limite) |
-
-**Intégration :** Appelé dans `decider.decide()` avant l'énumération des taux.
-Les taux > `sanctuary_max_rate` sont exclus de l'ensemble des candidats.
-
-### `backend/ace/judge.py`
-
-**Rôle :** Évaluateur qualité basé sur GPT-4o qui compare une réponse
-compressée à une réponse de référence et produit un score de qualité [0, 1].
-
-**Classe `QualityJudge` :**
-
-| Méthode | Description |
-|---------|-------------|
-| `evaluate(prompt, response_a, response_b)` | Score unique via GPT-4o |
-| `evaluate_batch(pairs)` | Batch (séquentiel) |
-| `is_available()` | True si clé API OpenAI configurée |
-| `get_stats()` | Stats latence |
-
-**Critères d'évaluation (5 dimensions) :**
-1. Exactitude factuelle (faits, chiffres, dates)
-2. Complétude (points clés préservés)
-3. Cohérence (raisonnement logique)
-4. Fidélité (pas de contradiction)
-5. Style (ton, niveau de détail)
-
-**Fallback :** Sans clé API, retourne 0.85 (score par défaut).
-
-### `backend/ace/dashboard.py`
-
-**Rôle :** Agrège les métriques qualité ACE depuis `ace_states` et
-`ace_requests` pour le dashboard DSI.
-
-**Endpoint :** `GET /api/v2/ace/quality-dashboard?days=7`
-
-**Retourne :**
-
-| Champ | Description |
-|-------|-------------|
-| `summary` | Stats globales (cells, quality, savings) |
-| `by_profile` | Qualité moyenne par profil de compression |
-| `by_task_type` | Qualité moyenne par type de tâche |
-| `alerts` | Alertes automatiques (qualité basse, bypass ratio, tâche dégradée) |
-
-### `backend/ace/onboarding.py`
-
-**Rôle :** Calculateur de ROI interactif pour prospects. Analyse un prompt
-saisi par l'utilisateur et projette les économies potentielles pour chaque
-profil de compression ACE.
-
-**Endpoint :** `GET /api/v2/ace/onboarding?prompt=...&model=...&monthly_requests=...`
-
-**Retourne :**
-
-| Champ | Description |
-|-------|-------------|
-| `prompt_analysis` | Type de tâche, longueur, ratio protégé, taux max Sanctuary |
-| `by_profile` | Chaque profil : économies, coût TF, net mensuel/annuel, ROI % |
-| `recommendation` | Profil recommandé (net mensuel max) |
-| `annual_projection` | Projection annuelle agrégée |
-
-### `backend/ace/embeddings.py`
-
-**Rôle :** Cold-start pour les cellules avec < 5 échantillons.
-
-**Principe :** Factorisation SVD de la matrice $contextes \times taux$
-où $M_{ij} = g(r_j, x_i)$. L'embedding d'un contexte capture comment il
-**répond à la compression**, pas de quoi il parle.
-
-**Fonctions :**
-
-| Fonction | Description |
-|----------|-------------|
-| `cold_start_quality(features, rate)` | Qualité estimée via k-NN (k=5) ou None |
-| `is_available()` | True si l'entraînement a été fait |
-| `fit()` | Entraînement SVD depuis ace_states |
-| `save(path)` | Sauvegarde U, V en .npy |
-
-### `backend/ace/train.py`
-
-**Rôle :** Pipeline d'entraînement unifié, exécutable via `python -m backend.ace.train`.
-
-```bash
-python -m backend.ace.train
-# → Trains quality model + embeddings + exports ONNX
-# → Nécessite ≥ 500 lignes avec signals_json non vide
-```
-
-**Phases :**
-1. Charge les données de `ace_requests` (min_samples paramétrable)
-2. Génère les pseudo-labels depuis les signaux
-3. Entraîne le QualityModel (LightGBM)
-4. Exporte en ONNX (~2 MB)
-5. Entraîne les embeddings de compressibilité (SVD)
-6. Sauvegarde U, V en .npy
+| `ace_states` | tenant, cluster, task, length, model, rate, quality_sum, n_samples, n_explorations | Cellules d'état |
+| `ace_requests` | colonnes historiques + `pif_headroom`, `integrity_passed` | Historique des requêtes |
+| `ace_sessions` | session, tenant, user, prompt_hash, response_hash, profile | Sessions de chat |
+| `calibration_samples` | tenant, prompt_hash, task, specificity, length, cluster, model, token_count, pif_headroom, features_json | Échantillons de calibration |
+| `drift_events` | mmd_value, p_value, n_production, n_calibration, tenant | Historique des drifts |
+| `oracle_evaluations` | request_id, passed, score, dimensions_json, failure_dimensions | Résultats Oracle |
 
 ### API ACE
 
 | Endpoint | Méthode | Description |
 |----------|---------|-------------|
-| `/api/v2/ace/status` | GET | Stats globales (cells, requests, taux exploration, qualité modèle disponible) |
-| `/api/v2/ace/cells` | GET | Liste des cellules (filtrable par task_type, min_samples) |
+| `/api/v2/ace/status` | GET | Stats globales (cells, requests, pif_bypass_count, integrity_fallback_count) |
+| `/api/v2/ace/cells` | GET | Liste des cellules |
 | `/api/v2/ace/train` | GET | Déclenche l'entraînement (quality model + embeddings) |
 | `/api/v2/ace/explain` | GET | Décompose l'utilité par profil pour un prompt donné |
-| `/api/v2/ace/quality-dashboard` | GET | Dashboard qualité agrégé (summary, by_profile, by_task, alerts) |
-| `/api/v2/ace/onboarding` | GET | Calculateur ROI interactif pour un prompt |
+| `/api/v2/ace/quality-dashboard` | GET | Dashboard qualité agrégé |
+| `/api/v2/ace/onboarding` | GET | Calculateur ROI interactif |
 
-### Diagramme de flux
+### Pipeline complet (12 étapes)
 
 ```
 Requête API
     │
     ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 0. Sanctuary : detect_protected_blocks(prompt)               │
-│    → sanctuary_max_rate (plafonne les candidats)             │
-└──────────────────────────┬──────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│ 1. PIF (pif.py) : compute_footprint(prompt)                     │
+│    → headroom < 5% ? BYPASS + enregistrement                    │
+└──────────────────────────┬──────────────────────────────────────┘
                            │
                            ▼
-┌──────────────────────────────────────────────────────┐
-│ 1. extract_features(prompt) → task, specificity, etc │
-│ 2. read_cells_for_context(...) → g(r,x) pour 6 taux  │
-│ 3. Filtrer taux > sanctuary_max_rate                  │
-│ 4. compute_utility(r,x) pour chaque taux              │
-│ 5. is_valid(r, U, ...) → filtre les taux non rentables│
-│ 6. pick_exploration_arm(...) → KG > 0 ?               │
-│ 7. argmax U(r,x) → (profile, rate)                    │
-└──────────────────────────┬───────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│ 2. Sanctuary (sanctuary.py) : max_safe_rate(prompt)             │
+│    → sanctuary_max_rate plafonne les candidats                  │
+└──────────────────────────┬──────────────────────────────────────┘
                            │
                            ▼
-                    Compression SPC
+┌─────────────────────────────────────────────────────────────────┐
+│ 3. extract_features(prompt) → task, specificity, length, cluster│
+│ 4. read_cells_for_context(...) → g(r,x) pour 6 taux             │
+│ 5. UCB Cascade : tri par UCB décroissant                         │
+│ 6. Cascade : premier taux valide (U > 0, qualité ≥ 0.80) gagne  │
+│ 7. Exploration KG : exploration si incertitude peut changer r*  │
+└──────────────────────────┬──────────────────────────────────────┘
                            │
                            ▼
-                    Réponse LLM + enregistrement
-                           │ (requête suivante)
+┌─────────────────────────────────────────────────────────────────┐
+│ 8. Compression (SPC + KOMPRESS) avec Entropy Gate :             │
+│    quenching_threshold() remplace le 15% fixe                   │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
                            ▼
-┌──────────────────────────────────────────────────────┐
-│ 8. detect_signals(session, user, tenant, prompt)     │
-│ 9. attribute(features, rate, signals) → cause        │
-│10. should_update_quality(attribution) ?               │
-│11. update_cell(...) → g(r,x) += δ                    │
-└──────────────────────────────────────────────────────┘
-                           │ (batch, offline)
+┌─────────────────────────────────────────────────────────────────┐
+│ 9. Integrity Gate (integrity_gate.py) : validate_compression()  │
+│    → Échec ? Fallback original + compteur + log                 │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
                            ▼
-┌──────────────────────────────────────────────────────┐
-│ Quality Judge : compare réponse compressée vs ref     │
-│ → score qualité pour entraînement du modèle           │
-└──────────────────────────────────────────────────────┘
+                     Forward upstream LLM
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 10. Reconstruction Monitor (reconstruction_monitor.py)          │
+│     → factual_loss, novelty_gain, is_acceptable                 │
+│ 11. Oracle (oracle.py) : évaluation AND-logic 5 dimensions      │
+│     → failure_dimensions → oracle_failures + log                │
+│ 12. enregistrement ACE (on_response) + Drift Detector sample    │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### Modèle de données
+### Variables d'environnement (nouvelles)
 
-```
-ace_states (cellules)
-┌────────────────────────────────────────────────┐
-│ tenant_id │ cluster │ task │ length │ model │ r │
-│ quality_sum │ n_samples │ n_explorations         │
-│ PK: (tenant_id, cluster, task, length, model, r)│
-└────────────────────────────────────────────────┘
+| Variable | Défaut | Description |
+|----------|--------|-------------|
+| `FORGE_PIF_ENABLED` | `1` | Active le PIF pre-check |
+| `FORGE_INTEGRITY_GATE_ENABLED` | `1` | Active l'Integrity Gate post-check |
+| `FORGE_DRIFT_ENABLED` | `0` | Active le Drift Detector (MMD) |
 
-ace_requests (historique)
-┌────────────────────────────────────────────────┐
-│ id │ tenant_id │ user_id │ session_id           │
-│ task_type │ specificity │ length_bucket         │
-│ user_cluster │ model │ provider                 │
-│ profile_chosen │ rate_actual                    │
-│ tokens_original │ tokens_compressed             │
-│ latency_ms │ was_exploration                    │
-│ signals_json (nullable)                         │
-│ created_at                                      │
-└────────────────────────────────────────────────┘
+### Nouvelles statistiques proxy
 
-ace_sessions (sessions)
-┌────────────────────────────────────────────────┐
-│ session_id │ tenant_id │ user_id                │
-│ prompt_hash │ prompt_preview                    │
-│ response_hash │ profile_chosen                  │
-│ created_at                                      │
-└────────────────────────────────────────────────┘
-```
+| Stat | Compteur | Description |
+|------|----------|-------------|
+| `pif_bypass_count` | Incrémenté | Requêtes bypassées par PIF (headroom < 5%) |
+| `integrity_fallback_count` | Incrémenté | Compressions rejetées par Integrity Gate |
+| `oracle_failures` | Incrémenté | Évaluations Oracle avec une dimension sous seuil |
 
 ---
 
@@ -1045,8 +1082,8 @@ docker-compose up -d
 
 ```bash
 python -m unittest backend.spc.tests       # 149 tests — régression SPC v1
-python -m unittest tests.test_v2_platform   # 20 tests — plateforme v2
-python -m pytest tests/test_ace.py          # 71 tests — ACE (Sanctuary, Judge, Dashboard, Onboarding, E2E)
+python -m unittest tests.test_v2_platform   # 26 tests — plateforme v2
+python -m pytest tests/test_ace.py -v       # 102 tests — ACE (Sanctuary, Judge, Dashboard, Onboarding, E2E, PIF, Integrity Gate, Oracle, Ensemble Judge, Drift Detector, Reconstruction Monitor)
 ```
 
 ### Documentation complémentaire

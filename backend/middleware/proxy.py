@@ -33,6 +33,9 @@ FORGE_COMPRESSION_ENABLED = os.environ.get("FORGE_COMPRESSION_ENABLED", "1") == 
 FORGE_LLM_REFINE = os.environ.get("FORGE_LLM_REFINE", "0") == "1"
 FORGE_STATS_ENABLED = os.environ.get("FORGE_STATS_ENABLED", "1") == "1"
 FORGE_ACE_ENABLED = os.environ.get("FORGE_ACE_ENABLED", "1") == "1"
+FORGE_PIF_ENABLED = os.environ.get("FORGE_PIF_ENABLED", "1") == "1"
+FORGE_INTEGRITY_GATE_ENABLED = os.environ.get("FORGE_INTEGRITY_GATE_ENABLED", "1") == "1"
+FORGE_DRIFT_ENABLED = os.environ.get("FORGE_DRIFT_ENABLED", "0") == "1"
 
 # Hop-by-hop headers a ne PAS forwarder
 _HOP_BY_HOP = frozenset({
@@ -50,6 +53,9 @@ _proxy_stats: Dict[str, Any] = {
     "total_fallbacks": 0,
     "total_errors": 0,
     "total_streaming": 0,
+    "pif_bypass_count": 0,
+    "integrity_fallback_count": 0,
+    "oracle_failures": 0,
 }
 
 # Circuit breakers per provider/model
@@ -428,15 +434,62 @@ async def chat_completions(request: Request):
             # Cache Governor: record request frequency
             _get_cache_governor().record_request(user_prompt, model)
 
-            pn, exp, _ = ace_decider.decide(ace_features)
-            profile_name = pn
-            was_exploration = exp
+            # ── PIF pre-check : exemption si incompressible ──────
+            pif_headroom = None
+            if FORGE_PIF_ENABLED:
+                try:
+                    from backend.ace.pif import compute_footprint, is_incompressible
+                    pif = compute_footprint(user_prompt)
+                    pif_headroom = pif.headroom
+                    if is_incompressible(pif):
+                        _proxy_stats["pif_bypass_count"] += 1
+                        logger.info("PIF exemption: headroom=%.1f%% for task=%s",
+                                    pif.headroom * 100, ace_features.get("task_type", "?"))
+                        profile_name = "bypass"
+                        was_exploration = False
+                    else:
+                        pn, exp, _ = ace_decider.decide(ace_features)
+                        profile_name = pn
+                        was_exploration = exp
+                except Exception as e:
+                    logger.warning("PIF failed, falling back to ACE: %s", e)
+                    pn, exp, _ = ace_decider.decide(ace_features)
+                    profile_name = pn
+                    was_exploration = exp
+            else:
+                pn, exp, _ = ace_decider.decide(ace_features)
+                profile_name = pn
+                was_exploration = exp
+
+            ace_features["pif_headroom"] = pif_headroom
         except Exception as e:
             logger.warning("ACE decision failed, using default profile: %s", e)
             profile_name = FORGE_COMPRESSION_PROFILE
 
     # ── 1. Compression silencieuse ──────────────────────
     compressed_messages, stats = _compress_messages(messages, profile_name=profile_name)
+    integrity_passed = True
+    if FORGE_INTEGRITY_GATE_ENABLED and not was_exploration and profile_name not in ("bypass",):
+        try:
+            for msg in compressed_messages:
+                if msg.get("role") == "user" and isinstance(msg.get("content"), str):
+                    c_text = msg["content"]
+                    # Ne valider que si le message a été compressé
+                    if c_text != user_prompt:
+                        from backend.ace.integrity_gate import validate_compression
+                        v_result = validate_compression(user_prompt, c_text)
+                        if not v_result.passed:
+                            integrity_passed = False
+                            _proxy_stats["integrity_fallback_count"] += 1
+                            logger.warning("Integrity Gate blocked: %s", v_result.failure_reason)
+                            profile_name = "bypass"
+                            stats["fallback"] = True
+                            # Fallback: utiliser le message original
+                            compressed_messages = messages
+                            body["messages"] = messages
+                            break
+        except Exception as e:
+            logger.warning("Integrity Gate failed: %s", e)
     body["messages"] = compressed_messages
     _update_stats(stats)
 
@@ -520,6 +573,44 @@ async def chat_completions(request: Request):
                     response_hash=response_hash,
                     provider=os.environ.get("FORGE_TARGET_URL", "openai").replace("https://", "").split(".")[0],
                 )
+
+                # ── Reconstruction Monitor ──────────────
+                try:
+                    if profile_name not in ("bypass",) and not stream:
+                        compressed_text = ""
+                        for msg in compressed_messages:
+                            if msg.get("role") == "user" and isinstance(msg.get("content"), str):
+                                compressed_text = msg["content"]
+                                break
+                        if compressed_text and compressed_text != prompt_text:
+                            from backend.ace.reconstruction_monitor import analyze
+                            reco = analyze(prompt_text, compressed_text, "", response_text)
+                            if not reco.is_acceptable:
+                                logger.warning("Reconstruction loss: factual_loss=%.2f novelty=%.2f",
+                                              reco.factual_loss, reco.novelty_gain)
+                except Exception as e:
+                    logger.debug("Reconstruction Monitor failed: %s", e)
+
+                # ── Oracle evaluation (non-streaming) ────
+                try:
+                    if not stream and profile_name not in ("bypass",):
+                        from backend.ace.oracle import evaluate
+                        ref_text = response_text[:1000]
+                        oracle = evaluate(prompt_text, ref_text, ref_text)
+                        if not oracle.passed:
+                            _proxy_stats["oracle_failures"] += 1
+                            logger.warning("Oracle: dimensions sous seuil: %s", oracle.failure_dimensions)
+                except Exception as e:
+                    logger.debug("Oracle evaluation failed: %s", e)
+
+                # ── Drift Detector ──────────────────────
+                try:
+                    if FORGE_DRIFT_ENABLED and ace_features is not None:
+                        from backend.ace.drift_detector import get_drift_detector
+                        dd = get_drift_detector()
+                        dd.record_sample(ace_features)
+                except Exception as e:
+                    logger.debug("Drift Detector failed: %s", e)
 
                 _session_ctx[session_id] = {
                     "features": ace_features,
@@ -616,6 +707,9 @@ async def proxy_stats():
         "savings_percent": round(saved / max(total, 1) * 100, 1) if total > 0 else 0,
         "total_fallbacks": _proxy_stats["total_fallbacks"],
         "total_errors": _proxy_stats["total_errors"],
+        "pif_bypass_count": _proxy_stats.get("pif_bypass_count", 0),
+        "integrity_fallback_count": _proxy_stats.get("integrity_fallback_count", 0),
+        "oracle_failures": _proxy_stats.get("oracle_failures", 0),
         "compression_profile": FORGE_COMPRESSION_PROFILE,
         "compression_enabled": FORGE_COMPRESSION_ENABLED,
         "circuit_breakers": {k: v.status() for k, v in _circuit_breakers.items()},

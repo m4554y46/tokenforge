@@ -1,0 +1,88 @@
+﻿regression:
+  description: "Bugs connus Ã  ne pas rÃ©gresser — tests de non-rÃ©gression"
+  prompts:
+    R01_aggressive_crash:
+      id: "R01"
+      difficulty: 4
+      tokens: ~200
+      languages: ["en"]
+      notes: "Bug connu: plantait en profile Aggressive. VÃ©rifie la stabilitÃ©."
+      contract_check: ["no_crash"]
+      text: |-
+        This is a complex prompt with multiple instructions that previously caused an Aggressive profile crash.
+        Step 1: Generate a list of 10 product names for a new line of organic skincare products.
+        Step 2: For each product name, create a 50-word marketing description.
+        Step 3: Add SEO keywords for each product.
+        Step 4: Format the output as a JSON array.
+        The target audience is environmentally conscious women aged 25-40.
+        The products use only natural ingredients and sustainable packaging.
+        Include pricing: products range from .99 to .99.
+
+    R02_empty_output:
+      id: "R02"
+      difficulty: 3
+      tokens: ~40
+      languages: ["en"]
+      notes: "Bug connu: produisait une sortie vide en Max profile."
+      contract_check: ["output_not_empty"]
+      text: "Donne moi trois idÃ©es de titres pour un article de blog sur la productivitÃ©."
+
+    R03_truncated_mid:
+      id: "R03"
+      difficulty: 4
+      tokens: ~60
+      languages: ["en"]
+      notes: "Bug connu: sortie arrÃªtÃ©e en milieu de phrase aprÃ¨s compression."
+      contract_check: ["output_complete"]
+      text: |-
+        Le processus de dÃ©ploiement comprend plusieurs Ã©tapes critiques.
+        Tout d'abord, il faut vÃ©rifier que tous les tests unitaires passent.
+        Ensuite, on construit l'image Docker avec le tag de version appropriÃ©.
+        Puis, on dÃ©ploie sur l'environnement de staging pour les tests d'intÃ©gration.
+        AprÃ¨s validation, on procÃ¨de au dÃ©ploiement en production par lots.
+        Enfin, on surveille les mÃ©triques pendant 24 heures pour dÃ©tecter d'Ã©ventuelles anomalies.
+
+    R04_quality_drop:
+      id: "R04"
+      difficulty: 5
+      tokens: ~100
+      languages: ["fr"]
+      notes: "Bug connu: qualitÃ© de compression < 0.60 sur certains contenus franÃ§ais riches."
+      contract_check: ["quality_score > 0.70"]
+      text: |-
+        Le prÃ©sent rapport a pour objet de prÃ©senter les rÃ©sultats de l'audit financier
+        menÃ© au sein de la direction des opÃ©rations europÃ©ennes pour l'exercice 2025.
+        L'audit a portÃ© sur les processus suivants : gestion des approvisionnements,
+        contrÃ´le interne, conformitÃ© rÃ©glementaire, et gestion des risques opÃ©rationnels.
+        Les principales constatations sont les suivantes :
+
+        Premier constat : un Ã©cart de 12.4% a Ã©tÃ© identifiÃ© entre les stocks
+        physiques et les stocks comptables au 31 dÃ©cembre 2025, principalement
+        attribuable Ã  des erreurs de saisie dans le module d'inventaire.
+
+        DeuxiÃ¨me constat : les procÃ©dures de contrÃ´le interne pour les achats
+        supÃ©rieurs Ã  50 000 â‚¬ n'ont pas Ã©tÃ© respectÃ©es dans 8 cas sur 45
+        Ã©chantillons examinÃ©s, soit un taux de non-conformitÃ© de 17.8%.
+
+        TroisiÃ¨me constat : les rapports de conformitÃ© rÃ©glementaire pour le
+        RGPD n'ont pas Ã©tÃ© mis Ã  jour depuis juin 2024, ce qui reprÃ©sente
+        un risque juridique significatif pour l'entreprise.
+
+    R05_judge_bias:
+      id: "R05"
+      difficulty: 5
+      tokens: ~80
+      languages: ["en"]
+      notes: "Prompt oÃ¹ le juge Quality Judge donnait un mauvais score. Teste la robustesse de l'Ã©valuation."
+      contract_check: ["judge_score_reliable"]
+      text: |-
+        The quick brown fox jumps over the lazy dog. This pangram contains every letter of the alphabet.
+        Pack my box with five dozen liquor jugs. This is another pangram.
+        How vexingly quick daft zebras jump! The quick onyx goblin jumps over the lazy dwarf.
+        Sphinx of black quartz, judge my vow. When zombies arrive, quickly fax each judge.
+        The five boxing wizards jump quickly. The jay, pig, fox, zebra, and my wolves quack!
+        Blowzy night-frumps vex'd Jack Q. Each of these sentences tests font rendering.
+        Grumpy wizards make toxic brew for the evil queen and jack.
+        The quick brown fox jumps over the lazy dog near the bank of the river.
+        Amazingly, this text is intentionally repetitive and boring to test if the judge
+        correctly evaluates compression quality even on uninteresting content.

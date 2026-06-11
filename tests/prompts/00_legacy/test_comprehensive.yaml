@@ -1,0 +1,44 @@
+﻿test_comprehensive:
+  description: "Extrait de test_comprehensive.py — 5 prompts variÃ©s"
+  source: "test_comprehensive.py"
+  prompts:
+    TemperatureFR:
+      id: "LEGACY_37"
+      difficulty: 2
+      tokens: ~25
+      languages: ["fr"]
+      source: "test_comprehensive.py:6"
+      text: "Si la tempÃ©rature augmente et dÃ©passe les 180Â°C, vous devez absolument couper le disjoncteur principal pour Ã©viter une surchauffe."
+
+    TemperatureEN:
+      id: "LEGACY_38"
+      difficulty: 2
+      tokens: ~20
+      languages: ["en"]
+      source: "test_comprehensive.py:8"
+      text: "If the temperature exceeds 180Â°C, you must immediately cut the main breaker to avoid overheating."
+
+    JSONConstraint:
+      id: "LEGACY_39"
+      difficulty: 3
+      tokens: ~30
+      languages: ["en"]
+      contract_check: ["format_constraints_preserved"]
+      source: "test_comprehensive.py:10"
+      text: "Write a summary in JSON format. The output must be under 200 words. Do not include any markdown formatting."
+
+    FrenchAnalysis:
+      id: "LEGACY_40"
+      difficulty: 2
+      tokens: ~20
+      languages: ["fr"]
+      source: "test_comprehensive.py:12"
+      text: "Je voudrais que tu analyses les donnÃ©es de vente Q4 par rÃ©gion dans un tableau comparatif."
+
+    ReactDashboard:
+      id: "LEGACY_41"
+      difficulty: 2
+      tokens: ~20
+      languages: ["en"]
+      source: "test_comprehensive.py:14"
+      text: "We are building a React dashboard for tracking inventory across 12 warehouses in North America."

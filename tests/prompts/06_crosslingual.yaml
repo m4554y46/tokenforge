@@ -1,0 +1,78 @@
+crosslingual:
+  description: Tests multilingues - couverture linguistique et code-switching
+  prompts:
+    L01_french:
+      id: L01
+      difficulty: 2
+      tokens: 40
+      languages:
+      - fr
+      notes: Francais natif.
+      text: Pourriez-vous me fournir une analyse comparative des performances de nos trois principaux fournisseurs de services
+        cloud au cours du dernier trimestre ? J aimerais que vous incluiez les metriques de disponibilite, de latence et de
+        cout.
+    L02_english:
+      id: L02
+      difficulty: 2
+      tokens: 30
+      languages:
+      - en
+      text: Please provide a comprehensive analysis of the competitive landscape in the European SaaS market for Q2 2026,
+        focusing on emerging challengers to established players.
+    L03_fr_en_mixed:
+      id: L03
+      difficulty: 3
+      tokens: 35
+      languages:
+      - fr
+      - en
+      notes: Code-switching.
+      text: 'Le projet avance bien. We need to finalize the budget by Friday.
+
+        L equipe a identifie trois risques majeurs. However, the mitigation plan is solid.
+
+        La presentation au comite est prete. Let me know if you need any changes.'
+    L04_german:
+      id: L04
+      difficulty: 3
+      tokens: 30
+      languages:
+      - de
+      text: Die Donaudampfschifffahrtsgesellschaftskapitansausbildungsverordnung wurde am 15. Marz 2026 verabschiedet. Bitte
+        fassen Sie die wichtigsten Anderungen zusammen.
+    L05_japanese:
+      id: L05
+      difficulty: 4
+      tokens: 25
+      languages:
+      - ja
+      notes: Japonais sans separation de mots.
+      text: 日本語のテキスト圧縮が正しく動作するかどうかテストします。文章の意味を変えずに圧縮できていますか？
+    L06_arabic_rtl:
+      id: L06
+      difficulty: 4
+      tokens: 25
+      languages:
+      - ar
+      notes: Arabe RTL.
+      text: يجب أن يقوم نظام الضغط بمعالجة النصوص العربية بشكل صحيح.
+    L07_fr_juridique:
+      id: L07
+      difficulty: 4
+      tokens: 50
+      languages:
+      - fr
+      notes: Francais juridique dense.
+      text: Attendu que le prevenu a contrevenu aux dispositions de l article L. 123-3 du Code de commerce ; Attendu que les
+        faits reproches sont constitutifs d un abus de confiance au sens de l article 314-1 du Code penal ; Attendu qu il
+        y a lieu de faire application des peines prevues par la loi ; Par ces motifs, le tribunal condamne le prevenu a une
+        peine de 18 mois d emprisonnement avec sursis et a 50 000 euros d amende.
+    L08_fr_quebecois:
+      id: L08
+      difficulty: 3
+      tokens: 30
+      languages:
+      - fr
+      notes: Francais quebecois.
+      text: Allo! J aimerais que tu m aides a creer un plan d affaires pour ma shop de reno dans le coin de Montreal. On a
+        besoin de prevoir nos achats de materiaux pour le printemps!

@@ -107,21 +107,44 @@ Le proxy legacy `/v1/chat/completions` reste compatible SDK OpenAI.
 
 ### Pilier 6 — Adaptive Compression Engine (`backend/ace/`)
 
-Choisit dynamiquement le meilleur taux de compression pour chaque requête LLM en maximisant la marge économique nette. Bandit contextuel à 5 couches : quality model (LightGBM), cell state, exploration KG, attribution causale, embeddings de compressibilité.
+Choisit dynamiquement le meilleur taux de compression pour chaque requête LLM en maximisant la marge économique nette. **11 couches** dont 6 nouvelles gates contractuelles (Phase 2).
 
-| Fichier | Rôle | API |
-|---------|------|-----|
-| `decider.py` | Moteur de décision (calcule $U(r,x)$, pick $r^*$) | intégré au proxy |
-| `features.py` | Extraction contexte : task, specificity, length, cluster | interne |
-| `state.py` | Cellules $(tenant, cluster, task, length, model, rate)$ | `GET /api/v2/ace/cells` |
-| `signals.py` | Détection reformulation/continuation entre requêtes | interne |
-| `models/quality_model.py` | LightGBM → ONNX, prédit qualité avec/sans signaux | `GET /api/v2/ace/train` |
-| `exploration.py` | Knowledge Gradient : explore seulement si ça change $r^*$ | interne |
-| `attribution.py` | Cause du signal : compression vs LLM vs user vs contexte | interne |
-| `embeddings.py` | SVD $contextes \times taux$, cold-start par k-NN | interne |
-| `train.py` | Pipeline d'entraînement unifié (quality model + embeddings) | `GET /api/v2/ace/train` |
+| Fichier | Rôle | API | Nouveau |
+|---------|------|-----|---------|
+| `pif.py` | Prompt Information Footprint — entropie + redondance → headroom | intégré proxy | ✅ |
+| `decider.py` | UCB Non-Monotone Cascade (explore/exploit par UCB décroissant) | intégré proxy | ✅ modifié |
+| `integrity_gate.py` | Entropy Gate (quenching adaptatif) + Integrity Gate (4 vérifications) | intégré proxy | ✅ |
+| `oracle.py` | Quality Oracle AND-logic — 5 dimensions toutes ≥ seuil | intégré proxy | ✅ |
+| `ensemble_judge.py` | Dawid-Skene EM — consensus multi-juge (GPT-4o, BLEU, ROUGE, heuristic) | intégré proxy | ✅ |
+| `drift_detector.py` | MMD-based drift detection (noyau RBF, fenêtre 100, permutation test) | `get_status()` | ✅ |
+| `reconstruction_monitor.py` | factual_loss vs novelty_gain post-compression | intégré proxy | ✅ |
+| `features.py` | Extraction contexte : task, specificity, length, cluster | interne | 🔧 |
+| `state.py` | Cellules + 3 nouvelles tables (calibration, drift, oracle) | `GET /api/v2/ace/cells` | 🔧 |
+| `signals.py` | Détection reformulation/continuation entre requêtes | interne | — |
+| `models/quality_model.py` | LightGBM → ONNX, prédit qualité avec/sans signaux | `GET /api/v2/ace/train` | — |
+| `exploration.py` | Knowledge Gradient : explore seulement si ça change $r^*$ | interne | — |
+| `attribution.py` | Cause du signal : compression vs LLM vs user vs contexte | interne | — |
+| `sanctuary.py` | Détection contenu protégé (code, JSON, LaTeX, YAML, tableaux) | intégré proxy | — |
+| `embeddings.py` | SVD contextes × taux, cold-start par k-NN | interne | — |
+| `judge.py` | QualityJudge GPT-4o (5 dimensions, fallback heuristique) | intégré oracle | — |
+| `dashboard.py` | Agrégation qualité depuis ace_states/ace_requests | `GET /api/v2/ace/quality-dashboard` | — |
+| `onboarding.py` | Calculateur ROI interactif pour prospects | `GET /api/v2/ace/onboarding` | — |
+| `train.py` | Pipeline d'entraînement unifié (quality model + embeddings) | `GET /api/v2/ace/train` | — |
 
-**ROI :** +36% de marge nette vs profil fixe, bypass automatique quand $U \leq 0$.
+**Pipeline complet :**
+```
+PIF (headroom < 5% → bypass)
+  → Sanctuary (contenu protégé → plafonnement)
+    → UCB Cascade (tri par UCB décroissant)
+      → Compression SPC + Entropy Gate (quenching)
+        → Integrity Gate (validation post-check)
+          → Forward LLM
+            → Reconstruction Monitor (factual_loss)
+              → Oracle (AND-logic 5 dimensions)
+                → Dawid-Skene consensus + Drift sample
+```
+
+**ROI :** +36% marge nette vs profil fixe, bypass automatique si headroom < 5% ou utilité ≤ 0.
 
 ```bash
 # Décision expliquée (pour le DSI)
@@ -163,7 +186,8 @@ L'API v1 (`/api/*`), le proxy (`/v1/*`), Electron et le pipeline SPC sont **inch
 
 ```bash
 python -m unittest backend.spc.tests        # 149 tests SPC
-python -m unittest tests.test_v2_platform   # tests v2
+python -m unittest tests.test_v2_platform   # 26 tests v2 platform
+python -m pytest tests/test_ace.py -v       # 102 tests ACE
 ```
 
 ---

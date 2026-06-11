@@ -87,15 +87,23 @@ docker-compose up -d
 ## ACE — Fichiers clés
 
 - `backend/ace/state.py` — Constantes + `FAILURE_COST_BY_TASK` (9 types) + `get_failure_cost(task_type)` + `MIN_CLIENT_SAVINGS_BY_MODEL` (8 modèles) + `get_min_client_savings(model)` + CellState + DB ops
-- `backend/ace/decider.py` — Decision engine: `decide()` → `compute_utility()` → `is_valid()`, utilise `get_failure_cost()` + `get_min_client_savings()` + `max_safe_rate()` (Sanctuary)
+- `backend/ace/decider.py` — Decision engine: `decide()` → `compute_utility()` → `is_valid()`, utilise `get_failure_cost()` + `get_min_client_savings()` + `max_safe_rate()` (Sanctuary) + **UCB cascade non-monotone**
+- `backend/ace/pif.py` — Prompt Information Footprint : entropie + redondance + contenu protégé → headroom, exemption contractuelle si < 5%
+- `backend/ace/integrity_gate.py` — Entropy Gate (quenching dynamique) + Integrity Gate (4 vérifications post-check : ratio, entropie, structure, non-vide)
+- `backend/ace/oracle.py` — Quality Oracle AND-logic : 5 dimensions seuillées, pas de gaming par moyenne
+- `backend/ace/ensemble_judge.py` — Dawid-Skene EM : consensus multi-juge (GPT-4o, BLEU, ROUGE, heuristic) + fiabilité estimée
+- `backend/ace/drift_detector.py` — MMD test (noyau RBF) avec fenêtre glissante 100 samples + permutation test
+- `backend/ace/reconstruction_monitor.py` — factual_loss (compression) vs novelty_gain (LLM)
 - `backend/ace/models/quality_model.py` — LightGBM → pickle, entraîné sur signaux, predict(features, signals) → qualité [0,1]
 - `backend/ace/embeddings.py` — SVD embeddings pour cold start k-NN
 - `backend/ace/train_seed.py` — Génère 600 requêtes synthétiques + lance l'entraînement (qualité + embeddings)
 - `backend/ace/_models/` — Modèles entraînés : `quality_model.pkl`, `embeddings.pkl`
 - `backend/ace/sanctuary.py` — Détecteur contenu protégé (code, JSON, LaTeX, tableaux, YAML) → `max_safe_rate()` plafonne la compression
-- `backend/ace/judge.py` — QualityJudge GPT-4o : évalue réponse compressée vs référence → score 0-1
+- `backend/ace/judge.py` — QualityJudge GPT-4o : évalue réponse compressée vs référence → score 0-1 (5 dimensions)
 - `backend/ace/dashboard.py` — Dashboard qualité : agrégation DB (ace_states, ace_requests) par profil/tâche, alertes
 - `backend/ace/onboarding.py` — Calculateur ROI interactif : analyse prompt × volume mensuel → projection financière par profil
+- `backend/spc/kompress.py` — KOMPRESS avec Entropy Gate (quenching adaptatif remplace 15% fixe)
+- `backend/middleware/proxy.py` — Pipeline complet : PIF → Sanctuary → UCB Cascade → Compress + Entropy Gate → Integrity Gate → Forward → Reconstruction Monitor → Oracle → Drift sample
 - `crash_test_ace.py` — Test de la frontière de compression (10 prompts, seed cells, décisions ACE)
 
 ## API endpoints ACE
@@ -111,12 +119,18 @@ docker-compose up -d
 
 ## Tests ACE
 
-Tests dans `tests/test_ace.py` (71 tests) :
+Tests dans `tests/test_ace.py` (102 tests) :
 - **TestSanctuary** (8) : détection blocs protégés, plafonnement taux, intégration decider
 - **TestQualityJudge** (5) : évaluation qualité, mock GPT-4o, reprise sur erreur, singleton
 - **TestQualityDashboard** (5) : agrégation DB, alertes, endpoint
 - **TestOnboardingROI** (7) : calculateur ROI, projection financière, Sanctuary respecté
 - **TestEndToEndFlow** (4) : pipeline complet features → décision → enregistrement → signal
+- **TestPIF** (5) : headroom, entropie, redondance, contenu protégé, exemption
+- **TestIntegrityGate** (6) : validation normale, sortie vide, troncature, quenching threshold, safe threshold, structure
+- **TestOracle** (4) : AND-logic passed/fails, contract compliant
+- **TestEnsembleJudge** (6) : BLEU/ROUGE identique/différent, consensus, stats
+- **TestDriftDetector** (5) : samples insuffisants, pas de drift, incrément, status, history
+- **TestReconstructionMonitor** (5) : factual_loss identique/avec dates, novelty_gain, should_retry, reconstruction_score
 
 ## Session Log
 
@@ -174,7 +188,56 @@ Tests dans `tests/test_ace.py` (71 tests) :
 - `embeddings.py` : `cold_start_quality()` retourne None si pas de contexte similaire (le caller fait le fallback)
 - `tests/test_ace.py` : test embeddings adapté pour ne pas exiger de float quand le contexte n'existe pas
 
-### 2026-06-10 — Audit & amélioration FinOps Dashboard + plugin autosave
+## Crash test — embed
+
+Pour lancer le crash test ACE complet (v1) :
+```bash
+$env:FORGE_ACE_ENABLED=0; python crash_test_ace.py
+```
+
+### 2026-06-11 — Phase 2-3 : 6 gates contractuelles + UCB cascade + batterie 92 prompts
+
+**Nouveaux modules créés :**
+
+| Module | Fichier | Tests |
+|--------|---------|-------|
+| **PIF** | `backend/ace/pif.py` | 5 (TestPIF) |
+| **Integrity Gate** (Entropy Gate + post-check) | `backend/ace/integrity_gate.py` | 6 (TestIntegrityGate) |
+| **Quality Oracle** (AND-logic) | `backend/ace/oracle.py` | 4 (TestOracle) |
+| **Ensemble Judge** (Dawid-Skene EM) | `backend/ace/ensemble_judge.py` | 6 (TestEnsembleJudge) |
+| **Drift Detector** (MMD test) | `backend/ace/drift_detector.py` | 5 (TestDriftDetector) |
+| **Reconstruction Monitor** | `backend/ace/reconstruction_monitor.py` | 5 (TestReconstructionMonitor) |
+
+**Fichiers modifiés :**
+- `backend/ace/decider.py` : UCB Non-Monotone Cascade (remplace cascade linéaire)
+- `backend/spc/kompress.py` : Entropy Gate (quenching adaptatif remplace 15% fixe)
+- `backend/middleware/proxy.py` : Pipeline complet PIF → UCB → Integrity → Reconstruction → Oracle → Drift
+- `backend/ace/tables.py` : 3 nouvelles tables (calibration_samples, drift_events, oracle_evaluations) + colonnes pif_headroom, integrity_passed
+- `backend/ace/state.py` : record_request() accepte pif_headroom et integrity_passed
+- `tests/test_ace.py` : 6 nouvelles classes de test (31 tests) → total 102 tests ACE
+
+**Pipeline final :**
+```
+PIF (headroom < 5% → bypass)
+  → Sanctuary (contenu protégé → plafonnement)
+    → UCB Cascade (tri par UCB décroissant)
+      → Compression SPC + Entropy Gate (quenching)
+        → Integrity Gate (validation post-check)
+          → Forward LLM
+            → Reconstruction Monitor (factual_loss)
+              → Oracle (AND-logic 5 dimensions)
+                → Dawid-Skene consensus + Drift sample
+```
+
+**Docs mis à jour :**
+- `docs/GUIDE_V2_PLATFORM.md` : section ACE complète réécrite (11 couches)
+- `README_V2.md` : table ACE avec tous les nouveaux modules
+- `README.md` : section ACE réécrite (11 couches), test count 102
+- `GUIDE_UTILISATION.md` : ligne ACE dans le tableau des piliers
+- `docs/adr/004-ace-phase2-contractual-gates.md` : nouvelle ADR
+- `AGENTS.md` : fichiers clés + tests + session log mis à jour
+
+**Tests : 128 passent (102 ACE + 26 v2 platform), batterie 92 prompts fonctionnelle**
 
 **Backend corrigé :**
 - `backend/finops/anomaly_detection.py` : ajout `import statistics` manquant (NameError)

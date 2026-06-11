@@ -1,0 +1,73 @@
+﻿# =============================================================================
+# TokenForge — Seuils documentés expérimentalement
+# Source: crash_test_ace.py, docs/CRASH_TEST_ACE.md, backend/ace/state.py
+# =============================================================================
+
+# ── Frontière cold-start (Q=0.85 par défaut) ──────────────────────────────
+cold_start:
+  frontier_tokens: 1200
+  light_min_tokens: 900
+  description: "Avant apprentissage, qualité Q=0.85 par défaut. Compression rentable au-delà."
+
+# ── Frontière après apprentissage (Q>0.95, 50+ échantillons) ──────────────
+learned:
+  frontier_tokens: 200
+  balanced_min_tokens: 200
+  max_min_tokens: 300
+
+# ── Seuil de bypass systématique ──────────────────────────────────────────
+bypass:
+  max_tokens: 50
+
+# ── Seuils par profil en cold-start ───────────────────────────────────────
+profile_cold_start_thresholds:
+  safe:      { min_tokens: 800,  need_tokens: 741 }
+  light:     { min_tokens: 900,  need_tokens: 889 }
+  balanced:  { min_tokens: 1200, need_tokens: 1143 }
+  aggressive:{ min_tokens: 1500, need_tokens: 1345 }
+  max:       { min_tokens: 2000, need_tokens: 1813 }
+
+# ── Seuils par profil après apprentissage ─────────────────────────────────
+profile_learned_thresholds:
+  balanced:  { min_tokens: 200, need_tokens: 182 }
+  max:       { min_tokens: 300, need_tokens: 308 }
+
+# ── Seuils de compression Sanctuary ───────────────────────────────────────
+sanctuary:
+  protected_ratio_high: 0.30
+  protected_ratio_medium: 0.15
+  protected_ratio_low: 0.05
+  no_protected: 1.0
+
+# ── Seuils ACE Decision ───────────────────────────────────────────────────
+ace:
+  min_client_savings: 0.001
+  failure_cost_default: 0.01
+  tf_share: 0.20
+  token_price: 0.00001
+  quality_min: 0.80
+  quality_cold_start: 0.85
+  failure_cost_by_task:
+    code: 0.015
+    analytique: 0.020
+    creatif: 0.010
+    factuel: 0.008
+    traduction: 0.005
+    resume: 0.010
+    brainstorming: 0.002
+    instruction: 0.012
+    general: 0.010
+
+# ── Seuils Quality Judge ─────────────────────────────────────────────────
+quality_judge:
+  min_score: 0.80
+  fallback_score: 0.85
+  criteria: [exactitude, completude, coherence, fidelite, style]
+
+# ── Seuils Calibration (nouveaux modules) ────────────────────────────────
+calibration:
+  conformal_coverage: 0.90
+  pif_min_headroom: 0.05
+  pif_max_headroom: 0.30
+  drift_mmd_threshold: 0.05
+  dawid_skene_min_agreement: 0.80
