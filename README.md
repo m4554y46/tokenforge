@@ -142,24 +142,32 @@ bypass       0.00   1.0000    $0.00000    $0.00000   $0.00000   $0.00000   Yes
 | Safe | rule-based | 10-20% | Protection + exact dedup + structural cleanup |
 | Light | rule-based | 15-25% | + Suppression bruit conversationnel |
 | Balanced | rule-based | 25-40% | + Restructuration logique, near-dedup MinHash |
-| Aggressive | KOMPRESS ⤑ LLMLingua-2 | 40-60% | + Semantic chunk filter + KOMPRESS neural + règles |
-| Max | KOMPRESS ⤑ LLMLingua-2 | 45-65% | + KOMPRESS neural + semantic chunk + quality validation |
-| Industrial | KOMPRESS ⤑ LLMLingua-2 | 50-75% | Production-grade : KOMPRESS + semantic chunk + quality + rules |
+| Aggressive | Local Rewrite ⤑ KOMPRESS ⤑ LLMLingua-2 | 40-60% | + Semantic chunk filter + local LLM rewrite + KOMPRESS neural + règles |
+| Max | Local Rewrite ⤑ KOMPRESS ⤑ LLMLingua-2 | 45-65% | + Local LLM rewrite + KOMPRESS neural + semantic chunk + quality validation |
+| Industrial | Local Rewrite ⤑ KOMPRESS ⤑ LLMLingua-2 | 50-75% | Production-grade : local LLM rewrite + KOMPRESS + semantic chunk + quality + rules |
 
 Tous les modes Aggressive+ peuvent être affinés par la **Couche 2 Gray Zone LLM** (Phi-3-mini) si activé et si le modèle `.gguf` est présent.
 
-## Pipeline SPC (18 phases)
+## Pipeline SPC (19 phases)
 
 ```
 Ingestion → Protection → Semantic Chunk Filter → Parse → IR → Constraint
 → Negation → Exact Dedup → Near Dedup → Discourse → Structural → Lexical
-→ Logical → Temporal → Example Reduction → Neural (KOMPRESS ⤑ LLMLingua-2)
+→ Logical → Temporal → Example Reduction → **Local LLM Rewrite** → Neural (KOMPRESS ⤑ LLMLingua-2)
 → Reconstruction → Validation → Quality → Metrics
 ```
 
-## Gray Zone LLM (Couche 2 — optionnel)
+## Local LLM Rewriter (Couche 3 — remplace KOMPRESS pour les profils agressifs)
 
-Un petit LLM local Phi-3-mini (3.8B, ~2.5GB RAM en Q4_K_M, CPU-only) résout les 5 zones grises que les règles+KOMPRESS ne peuvent pas traiter seuls :
+Un LLM local (Qwen2.5-1.5B, GGUF Q4, ~1 Go RAM, CPU-only) est chargé automatiquement
+s'il est présent dans `backend/spc/models/`. Au lieu de supprimer des tokens un par un
+(approche KOMPRESS), il **réécrit les phrases entières** de façon condensée mais fluide
+et grammaticale — résultat comparable aux outils web (toolszone).
+
+Si aucun modèle `.gguf` n'est disponible, le pipeline retombe transparentement sur KOMPRESS
+(token keep/remove) — zéro régression.
+
+## Gray Zone LLM (Couche 2 — optionnel)
 
 | Zone | Problème | Solution LLM |
 |---|---|---|
