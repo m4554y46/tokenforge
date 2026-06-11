@@ -120,7 +120,7 @@ docker-compose up -d
 
 ## Tests ACE
 
-Tests dans `tests/test_ace.py` (113 tests) :
+Tests dans `tests/test_ace.py` (122 tests) :
 - **TestSanctuary** (8) : détection blocs protégés, plafonnement taux, intégration decider
 - **TestQualityJudge** (5) : évaluation qualité, mock GPT-4o, reprise sur erreur, singleton
 - **TestQualityDashboard** (5) : agrégation DB, alertes, endpoint
@@ -133,6 +133,7 @@ Tests dans `tests/test_ace.py` (113 tests) :
 - **TestDriftDetector** (5) : samples insuffisants, pas de drift, incrément, status, history
 - **TestReconstructionMonitor** (5) : factual_loss identique/avec dates, novelty_gain, should_retry, reconstruction_score
 - **TestLocalRewrite** (11) : détection langue, templates FR/EN, disponibilité modèle, pipeline, fallback, profils
+- **TestQualityIntegration** (9) : tests de qualité réelle sur textes FR/EN, vérification ordre phrases, absence fragments, UTF-8, fallback profils agressifs
 
 ## Session Log
 
@@ -260,6 +261,16 @@ PIF (headroom < 5% → bypass)
 - Le rewrite produit des phrases correctes ("Un point de synchronisation technique hebdomadaire sera planifié chaque jeudi à 9h")
 
 **Docs mis à jour :** README.md, GUIDE_UTILISATION.md, GUIDE_V2_PLATFORM.md, AGENTS.md
+
+### 2026-06-11 — Tests qualité réelle : textes FR/EN, ordre phrases, UTF-8, fragments
+
+**Crash tests qualité ajoutés :**
+- `tests/test_ace.py` : nouvelle classe `TestQualityIntegration` (9 tests)
+- Deux textes réels : courriel professionnel FR (paragraphes formels + accents + signatures) + équivalent EN
+- 4 vérifications par profil (safe/light/balanced) : pas de fallback intempestif, pas de fragments illisibles, ordre des phrases conservé, compression non-explosive
+- 1 test UTF-8 : tous les caractères accentués (éèêëàâäùûüôöîïç) survivent à la compression
+- 2 tests aggressive/industrial : fallback gracieux sans planter ni produire de vide
+- **Total : 122 tests ACE passent** (9 nouveaux)
 
 **Backend corrigé :**
 - `backend/finops/anomaly_detection.py` : ajout `import statistics` manquant (NameError)
