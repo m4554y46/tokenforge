@@ -175,20 +175,23 @@ Chaque version affiche :
 5. Cliquez sur **⚡ Optimiser**
 6. Résultat attendu : vous voyez 3 versions avec des économies de ~15-30%
 
-### SCÉNARIO B : Affinage via LLM local (Couche 2 Gray Zone)
+### SCÉNARIO B : Réécriture intelligente via LLM local (Couche 3)
 
-**But :** Améliorer la qualité de la compression en utilisant un petit LLM qui tourne sur votre PC.
+**But :** Depuis la v2, les profils Aggressive/Max/Industrial utilisent un
+**Local LLM Rewriter** (Qwen2.5-1.5B en GGUF, ~1 Go) qui réécrit les phrases entières
+de façon condensée mais fluide — au lieu de supprimer des tokens un par un comme KOMPRESS.
 
-> **Prérequis :** Avoir téléchargé un modèle `.gguf` (voir section [Installation](#2-installation-pas-à-pas)).
+> **Prérequis :** Avoir un modèle `.gguf` dans `backend/spc/models/` (voir section [Installation](#2-installation-pas-à-pas)).
 
-1. Lancez l'application et vérifiez que le statut "✅ LLM disponible" s'affiche en bas de l'écran
-2. Dans les options avancées (flèche déroulante sous le bouton Optimiser), activez le toggle **"Affinage LLM local"**
-3. Sélectionnez un mode Aggressive, Max ou Industrial
-4. Cliquez sur **⚡ Optimiser**
-5. Résultat : les versions Aggressive+ sont affinées par le LLM local, badge **LLM** visible sur la carte
-6. Cela prend 10-30 secondes de plus selon la longueur du prompt
+1. Lancez l'application — le modèle est détecté automatiquement
+2. Sélectionnez un mode Aggressive, Max ou Industrial
+3. Cliquez sur **⚡ Optimiser**
+4. Résultat : le texte condensé est fluide et grammatical — comparable aux outils web (toolszone)
+5. Si aucun modèle `.gguf` n'est détecté, KOMPRESS est utilisé en fallback transparent
 
-> **Note :** Le LLM local (Phi-3-mini, ~2.5 Go RAM) ne remplace pas le pipeline SPC — il affine les zones grises après compression.
+**Fonctionnement :** Temperature 0.0, prompt anti-hallucination strict, 100% local,
+zéro appel réseau, zéro coût API. Les gates contractuelles (Reconstruction Monitor, Oracle)
+restent actives derrière pour valider la qualité.
 
 ### SCÉNARIO C : Test du simulateur de coûts
 

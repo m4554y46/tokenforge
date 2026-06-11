@@ -25,6 +25,7 @@ from .example_reducer import reduce_examples
 from .chunk_semantic import compress_with_semantic_chunking
 from .quality import validate_quality as validate_quality_fn
 from .llmlingua2 import auto_compress, compress_with_llmlingua2, compress_json_block, get_token_labels, TextType
+from .local_rewrite import rewrite_with_local_llm, is_rewriter_available
 from .reconstruction import reconstruct
 from .validator import validate_all, ValidationResult
 from .metrics import measure, Timer, TokenMetrics
@@ -158,8 +159,26 @@ class SPC:
                 if "example_reduction" in phases:
                     current = reduce_examples(current, max_examples=3)
 
-                # ── Phase 14: LLMLingua neural compression (auto-detect engine) ──
-                if "llmlingua2" in phases:
+                # ── Phase 13b: Local LLM Rewrite (remplace avantageusement KOMPRESS) ──
+                if "local_rewrite" in phases:
+                    try:
+                        rewritten = rewrite_with_local_llm(current, max_tokens=512)
+                        if rewritten and len(rewritten) < len(current) * 0.95:
+                            ratio_preserved = len(rewritten) / len(current)
+                            if 0.3 < ratio_preserved < 0.95:
+                                logger.info("Local rewrite: %d→%d chars (%.0f%%)",
+                                            len(current), len(rewritten), ratio_preserved * 100)
+                                current = rewritten
+                                self._intermediate["local_rewrite"] = True
+                                self._intermediate["local_rewrite_ratio"] = round(ratio_preserved, 3)
+                        else:
+                            self._intermediate["local_rewrite"] = False
+                    except Exception as e:
+                        logger.debug("Local rewrite unavailable, falling through: %s", e)
+                        self._intermediate["local_rewrite"] = False
+
+                # ── Phase 14: LLMLingua neural compression (skipped if local_rewrite succeeded) ──
+                if "llmlingua2" in phases and not self._intermediate.get("local_rewrite", False):
                     _rates = {"balanced": 0.65, "aggressive": 0.55, "max": 0.45, "industrial": 0.35}
                     _llm_rate = _rates.get(self.profile.name, 0.5)
                     _fmt = self._intermediate.get("detected_format", "txt")

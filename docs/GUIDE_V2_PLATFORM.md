@@ -875,8 +875,9 @@ Requête API
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 8. Compression (SPC + KOMPRESS) avec Entropy Gate :             │
-│    quenching_threshold() remplace le 15% fixe                   │
+│ 8. Compression (SPC + Local LLM Rewrite ⤑ KOMPRESS fallback) :    │
+│    - local_rewrite : réécriture via Qwen2.5 GGUF si dispo          │
+│    - sinon KOMPRESS (token keep/remove) + Entropy Gate quenching   │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
                            ▼
@@ -1083,7 +1084,7 @@ docker-compose up -d
 ```bash
 python -m unittest backend.spc.tests       # 149 tests — régression SPC v1
 python -m unittest tests.test_v2_platform   # 26 tests — plateforme v2
-python -m pytest tests/test_ace.py -v       # 102 tests — ACE (Sanctuary, Judge, Dashboard, Onboarding, E2E, PIF, Integrity Gate, Oracle, Ensemble Judge, Drift Detector, Reconstruction Monitor)
+python -m pytest tests/test_ace.py -v       # 113 tests — ACE (Sanctuary, Judge, Dashboard, Onboarding, E2E, PIF, Integrity Gate, Oracle, Ensemble Judge, Drift Detector, Reconstruction Monitor, Local Rewrite)
 ```
 
 ### Documentation complémentaire

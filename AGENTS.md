@@ -103,6 +103,7 @@ docker-compose up -d
 - `backend/ace/dashboard.py` — Dashboard qualité : agrégation DB (ace_states, ace_requests) par profil/tâche, alertes
 - `backend/ace/onboarding.py` — Calculateur ROI interactif : analyse prompt × volume mensuel → projection financière par profil
 - `backend/spc/kompress.py` — KOMPRESS avec Entropy Gate (quenching adaptatif remplace 15% fixe)
+- `backend/spc/local_rewrite.py` — Local LLM Rewriter : réécriture de phrases via Qwen2.5 (GGUF), remplace KOMPRESS pour les profils agressifs quand un modèle local est dispo
 - `backend/middleware/proxy.py` — Pipeline complet : PIF → Sanctuary → UCB Cascade → Compress + Entropy Gate → Integrity Gate → Forward → Reconstruction Monitor → Oracle → Drift sample
 - `crash_test_ace.py` — Test de la frontière de compression (10 prompts, seed cells, décisions ACE)
 
@@ -119,7 +120,7 @@ docker-compose up -d
 
 ## Tests ACE
 
-Tests dans `tests/test_ace.py` (102 tests) :
+Tests dans `tests/test_ace.py` (113 tests) :
 - **TestSanctuary** (8) : détection blocs protégés, plafonnement taux, intégration decider
 - **TestQualityJudge** (5) : évaluation qualité, mock GPT-4o, reprise sur erreur, singleton
 - **TestQualityDashboard** (5) : agrégation DB, alertes, endpoint
@@ -131,6 +132,7 @@ Tests dans `tests/test_ace.py` (102 tests) :
 - **TestEnsembleJudge** (6) : BLEU/ROUGE identique/différent, consensus, stats
 - **TestDriftDetector** (5) : samples insuffisants, pas de drift, incrément, status, history
 - **TestReconstructionMonitor** (5) : factual_loss identique/avec dates, novelty_gain, should_retry, reconstruction_score
+- **TestLocalRewrite** (11) : détection langue, templates FR/EN, disponibilité modèle, pipeline, fallback, profils
 
 ## Session Log
 
@@ -237,7 +239,27 @@ PIF (headroom < 5% → bypass)
 - `docs/adr/004-ace-phase2-contractual-gates.md` : nouvelle ADR
 - `AGENTS.md` : fichiers clés + tests + session log mis à jour
 
-**Tests : 128 passent (102 ACE + 26 v2 platform), batterie 92 prompts fonctionnelle**
+**Tests : 139 passent (113 ACE + 26 v2 platform), batterie 92 prompts fonctionnelle**
+
+### 2026-06-11 — Local LLM Rewriter : réécriture de phrases via Qwen2.5 GGUF
+
+**Nouveau module :**
+- `backend/spc/local_rewrite.py` — Local LLM Rewriter : charge Qwen2.5-1.5B (GGUF) depuis `backend/spc/models/`
+- Utilise `llama_cpp.py` (LlamaCpp + `llm.chat()`) avec prompt système bilingue FR/EN
+- Temperature=0.0, prompt anti-hallucination strict (ne jamais inventer dates/noms/chiffres)
+- Phase `local_rewrite` exécutée AVANT `llmlingua2` dans le pipeline SPC
+- Si elle réussit, KOMPRESS est sauté ; sinon fallback transparent
+
+**Modifications :**
+- `backend/spc/pipeline.py` : phase 13b `local_rewrite` + condition pour sauter KOMPRESS
+- `backend/spc/profiles.py` : `local_rewrite` ajouté à Aggressive, Max, Industrial
+
+**Tests : 11 nouveaux → 113 ACE. Résultat sur texte réel :**
+- Texte fluide, ordre des phrases conservé, 31% compression
+- KOMPRESS produisait des fragments illisibles ("anticiper risques derive delais")
+- Le rewrite produit des phrases correctes ("Un point de synchronisation technique hebdomadaire sera planifié chaque jeudi à 9h")
+
+**Docs mis à jour :** README.md, GUIDE_UTILISATION.md, GUIDE_V2_PLATFORM.md, AGENTS.md
 
 **Backend corrigé :**
 - `backend/finops/anomaly_detection.py` : ajout `import statistics` manquant (NameError)

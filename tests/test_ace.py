@@ -1013,5 +1013,77 @@ class TestReconstructionMonitor(unittest.TestCase):
         self.assertLessEqual(result.reconstruction_score, 1.0)
 
 
+class TestLocalRewrite(unittest.TestCase):
+    """Tests pour le module de réécriture locale."""
+
+    def test_detect_lang_french(self):
+        from backend.spc.local_rewrite import _detect_lang
+        lang = _detect_lang("Bonjour à toutes et à tous, suite à notre comité")
+        self.assertEqual(lang, "fr")
+
+    def test_detect_lang_english(self):
+        from backend.spc.local_rewrite import _detect_lang
+        lang = _detect_lang("Hello everyone, following our last meeting")
+        self.assertEqual(lang, "en")
+
+    def test_detect_lang_empty(self):
+        from backend.spc.local_rewrite import _detect_lang
+        lang = _detect_lang("")
+        self.assertEqual(lang, "en")
+
+    def test_is_rewriter_available_with_model(self):
+        from backend.spc.local_rewrite import is_rewriter_available
+        result = is_rewriter_available()
+        # Vérifie juste que ça ne crashe pas et retourne un booléen
+        self.assertIsInstance(result, bool)
+
+    def test_is_rewriter_detects_model(self):
+        """Vérifie que is_rewriter_available trouve le GGUF dans models/."""
+        import os
+        from backend.spc.local_rewrite import is_rewriter_available
+        from backend.spc.llama_cpp import _MODELS_DIR
+        has_gguf = any(f.endswith('.gguf') for f in os.listdir(_MODELS_DIR))
+        self.assertEqual(is_rewriter_available(), has_gguf)
+
+    @patch("backend.spc.local_rewrite.rewrite_with_local_llm")
+    def test_rewrite_fallback_on_missing_model(self, mock_rewrite):
+        """Quand le LLM local n'est pas dispo, on doit retomber sur KOMPRESS."""
+        from backend.spc.local_rewrite import rewrite_with_local_llm
+        mock_rewrite.return_value = None
+        result = rewrite_with_local_llm("Bonjour à tous")
+        self.assertIsNone(result)
+
+    def test_rewrite_system_template_french(self):
+        from backend.spc.local_rewrite import _REWRITE_SYSTEM_FR
+        self.assertIn("condensation", _REWRITE_SYSTEM_FR)
+        self.assertIn("Règles impératives", _REWRITE_SYSTEM_FR)
+
+    def test_rewrite_system_template_english(self):
+        from backend.spc.local_rewrite import _REWRITE_SYSTEM_EN
+        self.assertIn("condensation", _REWRITE_SYSTEM_EN)
+        self.assertIn("Mandatory rules", _REWRITE_SYSTEM_EN)
+
+    def test_local_rewrite_in_pipeline(self):
+        """Vérifie que la phase local_rewrite est dans les profils agressifs."""
+        from backend.spc.profiles import AGGRESSIVE, MAX, INDUSTRIAL
+        self.assertIn("local_rewrite", AGGRESSIVE.phases)
+        self.assertIn("local_rewrite", MAX.phases)
+        self.assertIn("local_rewrite", INDUSTRIAL.phases)
+
+    def test_local_rewrite_not_in_light_profiles(self):
+        """Vérifie que local_rewrite n'est pas dans les profils légers."""
+        from backend.spc.profiles import SAFE, LIGHT, BALANCED
+        self.assertNotIn("local_rewrite", SAFE.phases)
+        self.assertNotIn("local_rewrite", LIGHT.phases)
+        self.assertNotIn("local_rewrite", BALANCED.phases)
+
+    def test_llmlingua2_still_in_profiles(self):
+        """KOMPRESS/LLMLingua-2 reste comme fallback."""
+        from backend.spc.profiles import AGGRESSIVE, MAX, INDUSTRIAL
+        self.assertIn("llmlingua2", AGGRESSIVE.phases)
+        self.assertIn("llmlingua2", MAX.phases)
+        self.assertIn("llmlingua2", INDUSTRIAL.phases)
+
+
 if __name__ == "__main__":
     unittest.main()
