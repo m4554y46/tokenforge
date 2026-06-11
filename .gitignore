@@ -24,6 +24,9 @@ portal/next-env.d.ts
 portal/package-lock.json
 launcher.bat
 
+.opencode_bak/
+conversations/
+
 # LLMLingua-2 / KOMPRESS / CAMEMBERT / MODERNBERT model files
 # Download via: python backend/spc/download_models.py
 backend/spc/models/

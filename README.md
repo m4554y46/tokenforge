@@ -59,31 +59,47 @@ cd portal && npm install && npm run dev   # → http://localhost:3000
 
 ACE est le **cerveau économique** de TokenForge : il choisit dynamiquement le
 meilleur taux de compression pour chaque requête LLM, en maximisant la marge
-nette TokenForge sous contrainte de qualité.
+nette TokenForge sous contrainte de qualité **garantie contractuellement**.
 
 ### L'idée en une phrase
 
-> Au lieu d'apprendre quel taux de compression fonctionne (approche bandit classique),
-> ACE apprend **la perte d'utilité** causée par chaque taux, et n'explore que quand
-> l'information peut changer la décision.
+> ACE combine un bandit contextuel (UCB cascade non-monotone) avec 6 gates
+> contractuelles qui vérifient avant, pendant et après la compression que
+> la qualité est préservée.
 
-### Les 5 couches
+### Les 11 couches
 
-| Couche | Fichier | Ce qu'elle fait | Astuce |
-|--------|---------|-----------------|--------|
-| **Quality Model** | `models/quality_model.py` | Prédit $P(qualité \mid x, r, s)$ via LightGBM | Pseudo-labels depuis signaux comportementaux |
-| **Cell State** | `state.py` | Mémoire $(tenant, cluster, task, length, model, rate) \to g(r,x)$ | LRU 10k, cold-start via embeddings |
-| **Exploration KG** | `exploration.py` | Knowledge Gradient : explore seulement si ça peut changer $r^*$ | Jamais de ε-greedy |
-| **Attribution** | `attribution.py` | Cause du signal : compression vs LLM vs user vs contexte | Empêche le bandit d'apprendre des hallucinations |
-| **Embeddings** | `embeddings.py` | Similarité de comportement face à la compression | MiniLM + SVD, cold-start par k-NN |
+| # | Couche | Fichier | Ce qu'elle fait | Type |
+|---|--------|---------|-----------------|------|
+| 1 | **PIF** | `pif.py` | Prompt Information Footprint : entropie + redondance → headroom | Gate pré-check |
+| 2 | **Sanctuary** | `sanctuary.py` | Détecte contenu protégé (code, JSON, LaTeX) et plafonne le taux max | Gate pré-check |
+| 3 | **UCB Cascade** | `decider.py` | Tri par UCB décroissant, premier valide gagne (non-monotone) | Moteur |
+| 4 | **Quality Model** | `models/quality_model.py` | LightGBM qui prédit $P(qualité \mid x, r, s)$ | Apprentissage |
+| 5 | **Cell State** | `state.py` | Mémoire $(tenant, cluster, task, length, model, rate) \to g(r,x)$ | Mémoire |
+| 6 | **Entropy Gate** | `integrity_gate.py` | Floor adaptatif basé sur l'entropie (quenching dynamique) | Gate compression |
+| 7 | **Integrity Gate** | `integrity_gate.py` | 4 vérifications post-check (ratio, entropie, structure, non-vide) | Gate post-check |
+| 8 | **Reconstruction Monitor** | `reconstruction_monitor.py` | factual_loss vs novelty_gain | Gate post-check |
+| 9 | **Quality Oracle** | `oracle.py` | AND-logic : 5 dimensions doivent toutes passer leur seuil | Gate post-check |
+| 10 | **Ensemble Judge** | `ensemble_judge.py` | Dawid-Skene EM : consensus multi-juge (GPT-4o, BLEU, ROUGE, heuristic) | Évaluation |
+| 11 | **Drift Detector** | `drift_detector.py` | MMD test (noyau RBF) pour détection de drift distributionnel | Surveillance |
+
+### Pipeline complet
+
+```
+PIF (headroom < 5% → bypass) → Sanctuary (plafonnement)
+  → UCB Cascade (explore/exploit) → Compression + Entropy Gate
+    → Integrity Gate (4 checks) → Forward LLM
+      → Reconstruction Monitor → Oracle (AND-logic)
+        → Dawid-Skene consensus → Drift sample
+```
 
 ### Pourquoi c'est malin
 
-1. **Économie réelle** — $U(r) = savings \cdot TF_{share} - cost_{TF} - risk$ ; si $U \leq 0$, on ne compresse pas
-2. **Exploration intelligente** — Knowledge Gradient pur, pas de randomisation. L'exploration a un ROI informationnel
-3. **Pas de double-peine** — Attribution bayésienne à 4 causes évite de pénaliser la compression pour les erreurs du LLM
-4. **Explicable** — Chaque décision se décompose en utilité par profil → idéal pour le dialogue DSI
-5. **Robuste** — Bypass ($r=0$) toujours disponible ; désactivable via `FORGE_ACE_ENABLED=0`
+1. **Exemption contractuelle** — PIF headroom < 5% → bypass, le client n'est pas facturé pour une compression impossible
+2. **Non-monotone** — UCB cascade peut choisir un taux moins agressif mais plus fiable
+3. **AND-logic** — Pas de gaming : chaque dimension de qualité doit passer son seuil
+4. **Consensus robuste** — Dawid-Skene estime la fiabilité de chaque juge et pondère les aberrants
+5. **Surveillance continue** — Drift Detector détecte les changements distributionnels avant qu'ils n'impactent la qualité
 
 ### API ACE
 
@@ -358,8 +374,8 @@ python -m unittest backend.spc.tests
 # Tests plateforme v2
 python -m unittest tests.test_v2_platform
 
-# Tests ACE (42 tests — adaptative compression)
-python -m unittest tests.test_ace
+# Tests ACE (102 tests — adaptative compression + 6 gates contractuelles)
+python -m pytest tests/test_ace.py -v
 
 # Entraînement ACE (quality model + embeddings)
 python -m backend.ace.train

@@ -734,5 +734,284 @@ class TestOnboardingROI(unittest.TestCase):
         self.assertTrue(found, "ACE onboarding endpoint not found in router")
 
 
+class TestPIF(unittest.TestCase):
+    def test_empty_prompt(self):
+        from backend.ace.pif import compute_footprint, is_incompressible
+        pif = compute_footprint("")
+        self.assertFalse(pif.is_compressible)
+        self.assertTrue(is_incompressible(pif))
+        self.assertEqual(pif.num_tokens, 0)
+
+    def test_trivial_prompt(self):
+        from backend.ace.pif import compute_footprint
+        pif = compute_footprint("Hello world")
+        self.assertGreater(pif.entropy, 0)
+        self.assertIsInstance(pif.to_dict(), dict)
+
+    def test_very_redundant_prompt(self):
+        from backend.ace.pif import compute_footprint
+        pif = compute_footprint("Repeat repeat repeat repeat repeat " * 20)
+        self.assertGreater(pif.redundancy, 0.3)
+        self.assertGreater(pif.headroom, 0.1)
+
+    def test_protected_content_penalty(self):
+        from backend.ace.pif import compute_footprint
+        pif = compute_footprint("```python\ndef f(): pass\n```\n```json\n{\"a\":1}\n```" * 5)
+        self.assertGreater(pif.protected_ratio, 0.1)
+
+    def test_pif_integration_proxy(self):
+        from backend.ace.pif import compute_footprint, is_incompressible, MIN_HEADROOM_FOR_BYPASS
+        self.assertAlmostEqual(MIN_HEADROOM_FOR_BYPASS, 0.05)
+
+
+class TestIntegrityGate(unittest.TestCase):
+    def test_validate_normal_compression(self):
+        from backend.ace.integrity_gate import validate_compression
+        result = validate_compression(
+            "Expliquez le contexte économique de la France en 2024.",
+            "Expliquez contexte économique France 2024.",
+        )
+        self.assertTrue(result.passed)
+        self.assertIn("token_ratio", result.checks)
+
+    def test_validate_empty_output(self):
+        from backend.ace.integrity_gate import validate_compression
+        result = validate_compression("Hello world", "")
+        self.assertFalse(result.passed)
+        self.assertTrue(result.checks.get("is_empty", False))
+
+    def test_validate_truncated(self):
+        from backend.ace.integrity_gate import validate_compression
+        # Ratio < 0.15: "Ceci" (1 token) / 13 tokens ≈ 0.077
+        result = validate_compression(
+            "Ceci est un long texte qui doit être compressé mais pas trop.",
+            "Ceci",
+        )
+        self.assertFalse(result.passed)
+
+    def test_quenching_threshold(self):
+        from backend.ace.integrity_gate import quenching_threshold
+        t_redundant = quenching_threshold("yes yes yes yes yes yes yes yes " * 5)
+        t_dense = quenching_threshold("L'analyse économique montre une corrélation significative entre inflation et chômage selon le modèle de Phillips.")
+        self.assertGreaterEqual(t_dense, t_redundant)
+
+    def test_estimate_safe_threshold(self):
+        from backend.ace.integrity_gate import estimate_safe_threshold
+        t = estimate_safe_threshold("Analyse des tendances du marché.")
+        self.assertGreaterEqual(t, 0.15)
+        self.assertLessEqual(t, 0.95)
+
+    def test_structure_integrity_fail(self):
+        from backend.ace.integrity_gate import validate_compression
+        result = validate_compression(
+            "Voici le code:\n```python\ndef hello(): pass\n```",
+            "Voici le code",
+        )
+        # structure perdue
+        if result.checks.get("structure_failures"):
+            self.assertFalse(result.passed)
+
+
+class TestOracle(unittest.TestCase):
+    @patch("backend.ace.judge.QualityJudge.evaluate")
+    def test_oracle_passed(self, mock_evaluate):
+        mock_evaluate.return_value = {
+            "score": 0.95,
+            "details": {
+                "exactitude": 0.90,
+                "completude": 0.85,
+                "coherence": 0.80,
+                "fidelite": 0.95,
+                "style": 0.75,
+                "justification": "Bonne qualité",
+            },
+            "error": None,
+        }
+        from backend.ace.oracle import evaluate
+        result = evaluate("test prompt", "ref", "comp")
+        self.assertTrue(result.passed)
+        self.assertEqual(result.score, 1.0)
+
+    @patch("backend.ace.judge.QualityJudge.evaluate")
+    def test_oracle_fails_exactitude(self, mock_evaluate):
+        mock_evaluate.return_value = {
+            "score": 0.70,
+            "details": {
+                "exactitude": 0.50,
+                "completude": 0.85,
+                "coherence": 0.80,
+                "fidelite": 0.85,
+                "style": 0.70,
+                "justification": "Exactitude faible",
+            },
+            "error": None,
+        }
+        from backend.ace.oracle import evaluate
+        result = evaluate("test", "ref", "comp")
+        self.assertFalse(result.passed)
+        self.assertIn("exactitude", result.failure_dimensions)
+
+    @patch("backend.ace.judge.QualityJudge.evaluate")
+    def test_oracle_fails_multiple(self, mock_evaluate):
+        mock_evaluate.return_value = {
+            "score": 0.60,
+            "details": {
+                "exactitude": 0.50,
+                "completude": 0.60,
+                "coherence": 0.90,
+                "fidelite": 0.80,
+                "style": 0.90,
+                "justification": "Plusieurs dimensions faibles",
+            },
+            "error": None,
+        }
+        from backend.ace.oracle import evaluate
+        result = evaluate("test", "ref", "comp")
+        self.assertFalse(result.passed)
+        self.assertGreaterEqual(len(result.failure_dimensions), 2)
+
+    @patch("backend.ace.judge.QualityJudge.evaluate")
+    def test_oracle_contract_compliant(self, mock_evaluate):
+        mock_evaluate.return_value = {
+            "score": 0.92,
+            "details": {
+                "exactitude": 0.85,
+                "completude": 0.80,
+                "coherence": 0.85,
+                "fidelite": 0.90,
+                "style": 0.75,
+                "justification": "OK",
+            },
+            "error": None,
+        }
+        from backend.ace.oracle import evaluate, is_contract_compliant
+        result = evaluate("test", "ref", "comp")
+        self.assertTrue(is_contract_compliant(result))
+
+
+class TestEnsembleJudge(unittest.TestCase):
+    def test_bleu_identical(self):
+        from backend.ace.ensemble_judge import _compute_bleu
+        score = _compute_bleu("The cat sat on the mat with a hat", "The cat sat on the mat with a hat")
+        self.assertAlmostEqual(score, 1.0, places=2)
+
+    def test_bleu_different(self):
+        from backend.ace.ensemble_judge import _compute_bleu
+        score = _compute_bleu("The cat sat on the mat", "The dog ran in the park")
+        self.assertLess(score, 0.8)
+
+    def test_rouge_l_identical(self):
+        from backend.ace.ensemble_judge import _compute_rouge_l
+        score = _compute_rouge_l("Hello world", "Hello world")
+        self.assertAlmostEqual(score, 1.0, places=2)
+
+    def test_rouge_l_partial(self):
+        from backend.ace.ensemble_judge import _compute_rouge_l
+        score = _compute_rouge_l("The cat sat on the mat", "The cat sat")
+        self.assertGreater(score, 0.5)
+        self.assertLess(score, 1.0)
+
+    @patch("backend.ace.judge.QualityJudge.evaluate")
+    def test_ensemble_judge_consensus(self, mock_evaluate):
+        mock_evaluate.return_value = {"score": 0.90, "details": {}, "error": None}
+        from backend.ace.ensemble_judge import EnsembleJudge
+        ej = EnsembleJudge(api_key="")
+        result = ej.evaluate(
+            "What is the capital of France?",
+            "The capital of France is Paris. It is a beautiful city.",
+            "The capital of France is Paris. It is a beautiful city.",
+        )
+        self.assertGreater(result.consensus_score, 0.5)
+        self.assertIn("gpt4o", result.individual_scores)
+        self.assertIn("bleu", result.individual_scores)
+        self.assertIn("rouge", result.individual_scores)
+        self.assertIn("heuristic", result.individual_scores)
+
+    def test_ensemble_judge_get_stats(self):
+        from backend.ace.ensemble_judge import EnsembleJudge
+        ej = EnsembleJudge(api_key="")
+        stats = ej.get_stats()
+        self.assertIn("judge_reliabilities", stats)
+        self.assertIn("n_calls", stats)
+
+
+class TestDriftDetector(unittest.TestCase):
+    def test_not_enough_samples(self):
+        from backend.ace.drift_detector import DriftDetector
+        dd = DriftDetector()
+        f1 = {"task_type": "factuel", "specificity": "generic", "length_bucket": "medium", "token_count": 100, "user_cluster": 0}
+        dd.set_calibration([f1])
+        dd.record_sample(f1)
+        result = dd.detect()
+        self.assertIsNone(result)
+
+    def test_drift_not_detected_on_same(self):
+        from backend.ace.drift_detector import DriftDetector
+        dd = DriftDetector()
+        feats = {"task_type": "factuel", "specificity": "generic", "length_bucket": "medium", "token_count": 100, "user_cluster": 0}
+        calibration = [feats] * 20
+        dd.set_calibration(calibration)
+        for _ in range(20):
+            dd.record_sample(feats)
+        result = dd.detect()
+        self.assertIsNotNone(result)
+        self.assertFalse(result.drift_detected)
+
+    def test_record_sample_increments(self):
+        from backend.ace.drift_detector import DriftDetector
+        dd = DriftDetector()
+        f = {"task_type": "code", "specificity": "entity_rich", "length_bucket": "long", "token_count": 500, "user_cluster": 1}
+        self.assertEqual(dd.n_samples, 0)
+        dd.record_sample(f)
+        self.assertEqual(dd.n_samples, 1)
+
+    def test_get_status_no_data(self):
+        from backend.ace.drift_detector import DriftDetector
+        dd = DriftDetector()
+        status = dd.get_status()
+        self.assertFalse(status.drift_detected)
+
+    def test_drift_history_empty_initially(self):
+        from backend.ace.drift_detector import DriftDetector
+        dd = DriftDetector()
+        self.assertEqual(len(dd.get_drift_history()), 0)
+
+
+class TestReconstructionMonitor(unittest.TestCase):
+    def test_factual_loss_identical(self):
+        from backend.ace.reconstruction_monitor import analyze
+        result = analyze("Hello world", "Hello world")
+        self.assertAlmostEqual(result.factual_loss, 0.0)
+        self.assertTrue(result.is_acceptable)
+
+    def test_factual_loss_with_dates(self):
+        from backend.ace.reconstruction_monitor import analyze
+        result = analyze(
+            "Le chiffre d'affaires 2024 était de 1.2M€, en hausse de 15%.",
+            "Le CA était en hausse.",
+        )
+        self.assertGreater(result.factual_loss, 0.0)
+
+    def test_novelty_gain(self):
+        from backend.ace.reconstruction_monitor import analyze
+        result = analyze("test", "test", "", "En outre, il a été observé que")
+        self.assertGreater(result.novelty_gain, 0.0)
+
+    def test_should_retry(self):
+        from backend.ace.reconstruction_monitor import analyze, should_retry
+        result = analyze(
+            "En date du 15 mars 2024, le chiffre d'affaires s'élève à 2.5 millions d'euros.",
+            "Le CA était en hausse.",
+        )
+        if result.factual_loss > 0.15:
+            self.assertTrue(should_retry(result))
+
+    def test_reconstruction_score(self):
+        from backend.ace.reconstruction_monitor import analyze
+        result = analyze("Hello world test", "Hello test")
+        self.assertGreater(result.reconstruction_score, 0)
+        self.assertLessEqual(result.reconstruction_score, 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()

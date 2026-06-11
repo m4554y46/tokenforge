@@ -1,0 +1,147 @@
+﻿structural:
+  description: "Sanctuary + intÃ©gritÃ© structurelle — tests de prÃ©servation des formats protÃ©gÃ©s"
+  prompts:
+    S01_code_python:
+      id: "S01"
+      difficulty: 2
+      tokens: ~40
+      languages: ["en"]
+      known_frontier:
+        cold_start: "bypass"
+      contract_check: ["code_syntax_preserved"]
+      text: |-
+        def fibonacci(n: int) -> int:
+            if n <= 0:
+                raise ValueError(\"n must be positive\")
+            if n == 1 or n == 2:
+                return 1
+            a, b = 1, 1
+            for _ in range(3, n + 1):
+                a, b = b, a + b
+            return b
+
+    S02_json_payload:
+      id: "S02"
+      difficulty: 2
+      tokens: ~30
+      languages: ["en"]
+      contract_check: ["json_structure_preserved"]
+      text: '{\"server\": {\"host\": \"127.0.0.1\", \"port\": 8080, \"ssl\": true, \"timeout\": 30}}'
+
+    S03_latex_equation:
+      id: "S03"
+      difficulty: 3
+      tokens: ~20
+      languages: ["en"]
+      contract_check: ["latex_preserved"]
+      text: "RÃ©sous l'Ã©quation $\\frac{d^2y}{dx^2} + \\omega^2 y = 0$ avec conditions initiales (0)=1$, '(0)=0$."
+
+    S04_yaml_frontmatter:
+      id: "S04"
+      difficulty: 3
+      tokens: ~25
+      languages: ["en"]
+      contract_check: ["yaml_preserved"]
+      text: |-
+        ---
+        title: Test Document
+        version: 2.1.0
+        author: TokenForge
+        tags: [test, yaml, frontmatter]
+        ---
+        Le contenu du document commence ici.
+
+    S05_markdown_table:
+      id: "S05"
+      difficulty: 3
+      tokens: ~30
+      languages: ["en"]
+      contract_check: ["table_structure_preserved"]
+      text: |-
+        | MÃ©trique | Q1 | Q2 | Q3 | Q4 |
+        |----------|-----|-----|-----|-----|
+        | Revenu | .2M | .5M | .8M | .1M |
+        | CoÃ»ts | .8M | .9M | .0M | .1M |
+        | Profit | .4M | .6M | .8M | .0M |
+
+    S06_xml_block:
+      id: "S06"
+      difficulty: 3
+      tokens: ~30
+      languages: ["en"]
+      contract_check: ["xml_preserved"]
+      text: |-
+        <root>
+          <user id=\"42\" role=\"admin\">
+            <name>Alice</name>
+            <permissions>
+              <permission>read</permission>
+              <permission>write</permission>
+            </permissions>
+          </user>
+        </root>
+
+    S07_nested_json_deep:
+      id: "S07"
+      difficulty: 4
+      tokens: ~40
+      languages: ["en"]
+      contract_check: ["json_structure_preserved"]
+      text: '{\"level1\": {\"level2\": {\"level3\": {\"level4\": {\"level5\": {\"key\": \"value\"}}}}}}'
+
+    S08_code_sql:
+      id: "S08"
+      difficulty: 3
+      tokens: ~40
+      languages: ["en"]
+      contract_check: ["code_syntax_preserved"]
+      text: |-
+        SELECT u.name, COUNT(o.id) as order_count, SUM(o.total) as total_spent
+        FROM users u
+        LEFT JOIN orders o ON u.id = o.user_id
+        WHERE u.created_at >= '2025-01-01'
+        GROUP BY u.id, u.name
+        HAVING COUNT(o.id) > 5
+        ORDER BY total_spent DESC;
+
+    S09_code_js_multiline:
+      id: "S09"
+      difficulty: 4
+      tokens: ~50
+      languages: ["en"]
+      contract_check: ["code_syntax_preserved"]
+      text: |-
+        function processData({ users, config }) {
+          return users
+            .filter(u => u.active && u.role !== 'admin')
+            .map(u => ({
+              id: u.id,
+              fullName: ${u.firstName} ,
+              permissions: config.features[u.role] || []
+            }))
+            .reduce((acc, u) => { acc[u.id] = u; return acc; }, {});
+        }
+
+    S10_mixed_code_json:
+      id: "S10"
+      difficulty: 4
+      tokens: ~60
+      languages: ["en"]
+      contract_check: ["code_syntax_preserved", "json_structure_preserved"]
+      text: |-
+        Voici la configuration du serveur :
+        `json
+        {
+          \"host\": \"api.example.com\",
+          \"port\": 443,
+          \"endpoints\": [\"/users\", \"/orders\"]
+        }
+        `
+        Et voici le code de validation :
+        `python
+        def validate(data):
+            if not data.get(\"token\"):
+                raise ValueError(\"Token required\")
+            return True
+        `
+        Le tout doit Ãªtre dÃ©ployÃ© sur un cluster Kubernetes.

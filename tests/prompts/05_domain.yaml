@@ -1,0 +1,221 @@
+﻿domain:
+  description: "Domaines spÃ©cifiques — tests de compÃ©tence par secteur"
+  prompts:
+    D01_legal:
+      id: "D01"
+      difficulty: 3
+      tokens: ~80
+      languages: ["en"]
+      contract_check: ["entity_recall > 0.90"]
+      text: |-
+        INTELLECTUAL PROPERTY ASSIGNMENT AGREEMENT
+
+        THIS AGREEMENT is made on [Date] between:
+
+        (1) Acme Corporation, a company registered in Delaware (\"Company\")
+        (2) John Smith, an individual residing in New York (\"Developer\")
+
+        WHEREAS:
+        A. The Developer has created certain software inventions during employment.
+        B. The Company desires to acquire all rights to said inventions.
+
+        NOW IT IS HEREBY AGREED as follows:
+        1. The Developer hereby assigns all rights, title, and interest in the Software.
+        2. The Company shall pay consideration of ,000 within 30 days of execution.
+        3. This Agreement shall be governed by the laws of the State of Delaware.
+        4. Any dispute shall be resolved through binding arbitration.
+        5. The Developer warrants that the Software is original work.
+        6. The Company shall indemnify the Developer against third-party claims.
+
+    D02_medical:
+      id: "D02"
+      difficulty: 4
+      tokens: ~70
+      languages: ["en"]
+      notes: "DonnÃ©es mÃ©dicales sensibles. La compression ne doit pas changer les posologies."
+      contract_check: ["numerical_preserved", "entity_recall > 0.95"]
+      text: |-
+        PATIENT: Jane Doe (DOB: 1985-03-15)
+        DIAGNOSIS: Type 2 diabetes mellitus (ICD-10: E11.9)
+        MEDICATIONS:
+        - Metformin 500mg twice daily with meals
+        - Insulin glargine 20 units subcutaneously at bedtime
+        LAB RESULTS (2026-06-01):
+        - HbA1c: 7.2% (target < 7.0%)
+        - Fasting glucose: 142 mg/dL
+        PLAN: Increase metformin to 1000mg twice daily. Recheck HbA1c in 3 months.
+        CONTRAINDICATIONS: Patient has history of hypoglycemia. Do not use sulfonylureas.
+
+    D03_financial:
+      id: "D03"
+      difficulty: 3
+      tokens: ~60
+      languages: ["en"]
+      contract_check: ["numerical_preserved"]
+      text: |-
+        PORTFOLIO SUMMARY — Q2 2026
+
+        Assets Under Management: ,847,000,000
+        Asset Allocation:
+        - Equities: 55.3% (,104M)
+        - Fixed Income: 28.7% (,687M)
+        - Alternatives: 10.2% (,310M)
+        - Cash: 5.8% ()
+
+        Top Holdings:
+        1. AAPL:  (6.9% of portfolio)
+        2. MSFT:  (5.9%)
+        3. GOOGL:  (4.8%)
+
+        Performance: +8.3% YTD vs benchmark +7.1%
+        Expense Ratio: 0.42%
+        Risk Metrics: Sharpe 1.24, Beta 0.89, Volatility 12.3%
+
+    D04_scientific:
+      id: "D04"
+      difficulty: 4
+      tokens: ~80
+      languages: ["en"]
+      contract_check: ["numerical_preserved"]
+      text: |-
+        We propose a novel architecture for efficient LLM inference.
+        Our method achieves 3.2x speedup on NVIDIA A100 GPUs with only 1.8% accuracy loss.
+        The model uses 8-bit quantization (FP8) with outlier suppression.
+        We evaluate on 5 benchmarks:
+        - MMLU: 72.3% (baseline 73.1%)
+        - HellaSwag: 81.5% (baseline 82.0%)
+        - GSM8K: 68.7% (baseline 70.1%)
+        - HumanEval: 65.4% (baseline 66.2%)
+        - BBH: 59.8% (baseline 60.5%)
+        Temperature: 0.7, Top-p: 0.95, Max tokens: 2048.
+
+    D05_technical:
+      id: "D05"
+      difficulty: 3
+      tokens: ~60
+      languages: ["en"]
+      contract_check: ["entity_recall > 0.85"]
+      text: |-
+        SYSTEM ARCHITECTURE DOCUMENT
+
+        The platform consists of 3 microservices:
+        1. API Gateway (Kong) — handles auth, rate limiting, routing
+        2. User Service (Python/FastAPI) — user management, PostgreSQL
+        3. Analytics Service (Rust) — real-time metrics, Redis + ClickHouse
+
+        Infrastructure:
+        - Kubernetes cluster: v1.28, 8 nodes (c5.2xlarge)
+        - Database: PostgreSQL 15 with read replicas in us-east-1 and eu-west-1
+        - Cache: Redis 7 cluster (3 masters, 3 replicas)
+        - Monitoring: Prometheus + Grafana + ELK stack
+
+        Deployment: CI/CD via GitHub Actions → Docker Registry → ArgoCD
+
+    D06_creative:
+      id: "D06"
+      difficulty: 4
+      tokens: ~40
+      languages: ["fr"]
+      notes: "PoÃ¨me avec mÃ©trique et rimes. La compression ne doit pas briser la structure poÃ©tique."
+      text: |-
+        Le vent soufflait sur les toits argentÃ©s,
+        Les arbres dansaient, les feuilles tournoyaient.
+        La lune veillait sur la ville enchantÃ©e,
+        Tandis que les songes doucement s'envolaient.
+
+        Dans le silence Ã©pais de la nuit profonde,
+        Un chat s'Ã©tirait sur le pavÃ© humide.
+        Les Ã©toiles brillaient, complices du monde,
+        Et le temps glissait, paisible et liquide.
+
+    D07_instructional:
+      id: "D07"
+      difficulty: 3
+      tokens: ~60
+      languages: ["en"]
+      contract_check: ["instruction_following > 0.90"]
+      text: |-
+        HOW TO DEPLOY A MICROSERVICE
+
+        Prerequisites:
+        - Docker installed
+        - kubectl configured
+        - Access to container registry
+
+        Step 1: Build the Docker image
+          docker build -t myapp:v1.0.0 .
+
+        Step 2: Push to registry
+          docker push registry.example.com/myapp:v1.0.0
+
+        Step 3: Update Kubernetes manifest
+          kubectl set image deployment/myapp myapp=registry.example.com/myapp:v1.0.0
+
+        Step 4: Verify deployment
+          kubectl rollout status deployment/myapp
+
+        Step 5: Check health endpoint
+          curl https://myapp.example.com/health
+
+        IMPORTANT: If the health check fails, rollback immediately using:
+          kubectl rollout undo deployment/myapp
+
+    D08_analytical:
+      id: "D08"
+      difficulty: 4
+      tokens: ~70
+      languages: ["fr"]
+      notes: "Analyse de donnÃ©es avec chiffres et pÃ©riodes. Teste la prÃ©servation analytique."
+      contract_check: ["numerical_preserved"]
+      text: |-
+        ANALYSE DES VENTES Q4 2025
+
+        PÃ©riode: Octobre - DÃ©cembre 2025
+
+        RÃ©sultats clÃ©s:
+        - CA total: â‚¬12,847,000 (+23.4% vs Q4 2024)
+        - Volume: 847,000 unitÃ©s (+15.2%)
+        - Prix moyen: â‚¬15.17 (+7.1%)
+        - Marge brute: 63.9% (vs 61.2% en Q4 2024)
+
+        Breakdown par rÃ©gion:
+        - France: â‚¬5,234,000 (40.7%) — croissance +18.2%
+        - Allemagne: â‚¬3,891,000 (30.3%) — croissance +31.5%
+        - BÃ©nÃ©lux: â‚¬2,145,000 (16.7%) — croissance +12.8%
+        - Autres: â‚¬1,577,000 (12.3%) — croissance +8.4%
+
+        Recommandations:
+        1. Augmenter la capacitÃ© logistique en Allemagne
+        2. Lancer campagne Q1 2026 ciblant le segment premium
+
+    D09_code_refactoring:
+      id: "D09"
+      difficulty: 3
+      tokens: ~30
+      languages: ["en"]
+      notes: "Demande de refactoring sans code source fourni. Teste si le compresseur gÃ¨re l'abstraction."
+      text: "Refactor the authentication module to support OAuth 2.0 and SAML. The current implementation uses basic auth and needs to be replaced. Keep backward compatibility for 6 months."
+
+    D10_agentic_multiturn:
+      id: "D10"
+      difficulty: 4
+      tokens: ~80
+      languages: ["fr"]
+      notes: "Prompt agent multi-tour avec mÃ©moire explicite des tours prÃ©cÃ©dents."
+      text: |-
+        [CONTEXTE]
+        Tu es un assistant financier. Tu as dÃ©jÃ  fourni les informations suivantes:
+        - Tour 1: Analyse du bilan comptable de Acme Corp pour 2025
+        - Tour 2: Recommandations d'optimisation fiscale
+        - Tour 3: PrÃ©visions de trÃ©sorerie pour Q1 2026
+
+        [NOUVELLE DEMANDE]
+        Sur la base des informations dÃ©jÃ  fournies, prÃ©pare un rapport exÃ©cutif synthÃ©tique
+        qui combine:
+        1. Les ratios de rentabilitÃ© clÃ©s du Tour 1
+        2. Les 3 recommandations fiscales prioritaires du Tour 2
+        3. Les alerts de trÃ©sorerie du Tour 3
+
+        [FORMAT]
+        Format: bullet points, maximum 1 page, pas de jargon technique.
+        Public: ComitÃ© exÃ©cutif non-financier.

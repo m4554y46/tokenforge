@@ -261,6 +261,8 @@ def record_request(
     profile_chosen: str, rate_actual: Optional[float],
     tokens_original: int, tokens_compressed: int,
     latency_ms: float, was_exploration: bool,
+    pif_headroom: Optional[float] = None,
+    integrity_passed: bool = True,
 ) -> None:
     savings = 0
     if tokens_original > 0:
@@ -271,14 +273,16 @@ def record_request(
         f"(tenant_id, user_id, session_id, prompt_hash, task_type, specificity, "
         f"length_bucket, user_cluster, model, provider, profile_chosen, rate_actual, "
         f"tokens_original, tokens_compressed, savings_percent, latency_ms, "
-        f"was_exploration, signals_json, created_at) "
-        f"VALUES ({p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},'{{}}',{p})",
+        f"was_exploration, signals_json, attribution, pif_headroom, integrity_passed, created_at) "
+        f"VALUES ({p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},'{{}}',{p},{p},{p},{p})",
         (
             tenant_id, user_id, session_id, prompt_hash, task_type,
             specificity, length_bucket, user_cluster, model, provider or "",
             profile_chosen, rate_actual,
             tokens_original, tokens_compressed, round(savings, 2),
             round(latency_ms, 2), 1 if was_exploration else 0,
+            None,  # attribution
+            pif_headroom, 1 if integrity_passed else 0,
             _now(),
         ),
     )

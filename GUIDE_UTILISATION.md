@@ -486,6 +486,7 @@ client.close()
 | **FinOps** | Budgets, alertes, prévisions, ROI prouvable |
 | **Governance** | Bloquez des modèles ou forcez la compression par équipe |
 | **Smart Gateway** | Cache + compression automatiques sur chaque appel |
+| **ACE** | Bandit contextuel + 6 gates contractuelles (PIF, Entropy Gate, Integrity Gate, Oracle, Ensemble Judge, Drift Detector) — compression adaptative avec garanties qualité |
 | **Observability** | Métriques Prometheus pour Grafana |
 | **Experiments** | Comparez original vs compressé avec des données |
 

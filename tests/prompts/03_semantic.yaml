@@ -1,0 +1,132 @@
+﻿semantic:
+  description: "PrÃ©servation sÃ©mantique critique — tests de fidÃ©litÃ© du sens"
+  prompts:
+    M01_negation:
+      id: "M01"
+      difficulty: 2
+      tokens: ~40
+      languages: ["en"]
+      source: "fusion: SPC_ONLY_NEGATIONS + BENCH_Multilingual"
+      critical_tokens: ["not", "never", "no", "forbidden", "except", "unless"]
+      contract_check: ["negations_preserved"]
+      known_frontier:
+        cold_start: "bypass"
+      text: |-
+        The system must not log passwords.
+        Users should never share credentials.
+        No data shall be deleted without confirmation.
+        Access is forbidden except for authorized personnel.
+        Unless explicitly permitted, all requests must be authenticated.
+
+    M02_negation_critical:
+      id: "M02"
+      difficulty: 4
+      tokens: ~25
+      languages: ["en"]
+      critical_tokens: ["not", "do not"]
+      contract_check: ["negations_preserved", "instruction_following > 0.95"]
+      notes: "NÃ©gation critique: si perdue, le sens est inversÃ© et devient dangereux."
+      text: "Do NOT include the price in the response. Do NOT mention competitors by name. Do NOT make promises about future features."
+
+    M03_deontic:
+      id: "M03"
+      difficulty: 3
+      tokens: ~35
+      languages: ["en"]
+      critical_tokens: ["must", "shall", "obligatoire"]
+      contract_check: ["modality_preserved"]
+      text: |-
+        The system must encrypt all data at rest.
+        The provider shall deliver the software by 2025-12-31.
+        All passwords must be hashed using bcrypt.
+        The API shall not expose internal IP addresses.
+
+    M04_ambiguity:
+      id: "M04"
+      difficulty: 5
+      tokens: ~30
+      languages: ["en"]
+      notes: "Supprimer un seul mot change le sens. Test de prÃ©cision de la compression."
+      contract_check: ["entity_recall > 0.95"]
+      text: "The CEO approved the merger, but the board rejected it. The final decision rests with the shareholders, not management."
+
+    M05_numerical:
+      id: "M05"
+      difficulty: 3
+      tokens: ~25
+      languages: ["en"]
+      critical_tokens: [",234.56", "3.141592653589793", "42%"]
+      contract_check: ["numerical_preserved"]
+      text: "Revenue grew to ,234.56 (up 42% YoY). Pi is approximately 3.141592653589793. The server handles 99.99% uptime."
+
+    M06_date_ranges:
+      id: "M06"
+      difficulty: 3
+      tokens: ~25
+      languages: ["en"]
+      critical_tokens: ["2024-01-01", "2026-12-31"]
+      contract_check: ["numerical_preserved"]
+      text: "The project runs between 2024-01-01 and 2026-12-31. Milestone 1 due 2024-06-30. Final delivery by 2026-12-31."
+
+    M07_conditional:
+      id: "M07"
+      difficulty: 4
+      tokens: ~30
+      languages: ["en"]
+      contract_check: ["logical_structure_preserved"]
+      text: "If the user is authenticated and the token is valid, then grant access. Otherwise, return 401. If the token expires, redirect to login."
+
+    M08_causal_chain:
+      id: "M08"
+      difficulty: 4
+      tokens: ~40
+      languages: ["en"]
+      contract_check: ["logical_structure_preserved"]
+      text: "Le serveur a surchauffÃ© parce que le ventilateur est tombÃ© en panne. Cela a dÃ©clenchÃ© l'arrÃªt d'urgence. Par consÃ©quent, toutes les transactions en cours ont Ã©tÃ© perdues. Ceci a conduit Ã  une perte de ,000."
+
+    M09_coreference:
+      id: "M09"
+      difficulty: 4
+      tokens: ~50
+      languages: ["en"]
+      contract_check: ["coreference_resolved"]
+      notes: "Anaphores sur 3 paragraphes. La compression ne doit pas perdre les rÃ©fÃ©rents."
+      text: |-
+        Le PDG a prÃ©sentÃ© le rapport financier au conseil. Il a soulignÃ© la croissance de 23%.
+        Le conseil a approuvÃ© sa recommandation. Celle-ci prÃ©voyait un investissement de .
+        Les actionnaires ont votÃ© pour. Ils ont exprimÃ© leur confiance dans l'Ã©quipe dirigeante.
+
+    M10_contradiction:
+      id: "M10"
+      difficulty: 5
+      tokens: ~30
+      languages: ["en"]
+      notes: "Prompt paradoxal. Teste si le compresseur prÃ©serve les contradictions ou les aplanit."
+      text: "The system must be extremely detailed yet extremely concise. Use complex language but keep it simple. Follow all rules except when breaking them is better."
+
+    M11_instruction_scope:
+      id: "M11"
+      difficulty: 4
+      tokens: ~40
+      languages: ["en"]
+      contract_check: ["scope_preserved"]
+      text: |-
+        Section 1: Translate this to French.
+        Section 2: Summarize the key points.
+        IMPORTANT: The translation rule applies only to Section 1.
+        Section 3: Do NOT translate anything here.
+
+    M12_multi_step:
+      id: "M12"
+      difficulty: 4
+      tokens: ~50
+      languages: ["en"]
+      contract_check: ["instruction_following > 0.90"]
+      text: |-
+        Step 1: Extract all email addresses from the text.
+        Step 2: Validate each email against the corporate domain list.
+        Step 3: Remove duplicates from the validated list.
+        Step 4: Sort alphabetically by domain, then by username.
+        Step 5: Output as JSON array.
+        Step 6: If the list is empty, return {\"status\": \"no_valid_emails\"}.
+        Step 7: Log the count of removed duplicates.

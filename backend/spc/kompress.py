@@ -165,11 +165,15 @@ def compress_with_kompress(
     scores_np = scores[0].cpu().numpy().tolist()
     score_tensor = scores[0]  # (S,)
 
-    # Dual strategy: absolute threshold + percentile floor
+    # Dual strategy: absolute threshold + entropy-based floor (Integrity Gate)
     # absolute: drop tokens with score < threshold
-    # percentile: always drop bottom 15% to guarantee minimum compression
-    pct_floor = float(torch.quantile(score_tensor, 0.15))
-    effective_threshold = max(threshold, pct_floor)
+    # entropy floor: remplace le 15% fixe par un seuil adaptatif
+    try:
+        from backend.ace.integrity_gate import quenching_threshold
+        qf = quenching_threshold(text)
+    except Exception:
+        qf = 0.15
+    effective_threshold = max(threshold, qf)
     keep_mask = score_tensor >= effective_threshold  # (S,)
 
     kept_ids = input_ids[0][keep_mask]
