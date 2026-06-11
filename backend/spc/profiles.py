@@ -60,10 +60,10 @@ AGGRESSIVE = Profile(
         "constraint", "negation", "exact_dedup", "near_dedup",
         "discourse",
         "structural", "lexical", "logical", "temporal",
-        "example_reduction", "llmlingua2",
+        "example_reduction", "local_rewrite", "llmlingua2",
         "reconstruction", "validation", "quality", "metrics",
     },
-    description="+ Lexical, example reduction, temporal, full logical + neural (KOMPRESS ⤑ LLMLingua-2 fallback).",
+    description="+ Lexical, example reduction, temporal, full logical + local rewrite (→ KOMPRESS fallback).",
     target_reduction="40-60%",
 )
 
@@ -74,10 +74,10 @@ MAX = Profile(
         "constraint", "negation", "exact_dedup", "near_dedup",
         "discourse",
         "structural", "lexical", "logical", "temporal",
-        "example_reduction", "llmlingua2",
+        "example_reduction", "local_rewrite", "llmlingua2",
         "reconstruction", "validation", "quality", "metrics",
     },
-    description="+ All rule-based + neural token compression (KOMPRESS ⤑ LLMLingua-2 fallback) + semantic chunk filter.",
+    description="+ All rule-based + local rewrite (→ KOMPRESS fallback) + semantic chunk filter.",
     target_reduction="45-75%",
 )
 
@@ -88,10 +88,10 @@ INDUSTRIAL = Profile(
         "constraint", "negation", "exact_dedup", "near_dedup",
         "discourse",
         "structural", "lexical", "logical", "temporal",
-        "example_reduction", "llmlingua2",
+        "example_reduction", "local_rewrite", "llmlingua2",
         "reconstruction", "validation", "quality", "metrics",
     },
-    description="Production-grade: all compression + neural + semantic chunk filter + quality validation.",
+    description="Production-grade: all compression + local rewrite (→ KOMPRESS fallback) + semantic chunk filter + quality validation.",
     target_reduction="45-75%",
     min_tokens=50,
 )

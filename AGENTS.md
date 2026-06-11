@@ -103,6 +103,7 @@ docker-compose up -d
 - `backend/ace/dashboard.py` — Dashboard qualité : agrégation DB (ace_states, ace_requests) par profil/tâche, alertes
 - `backend/ace/onboarding.py` — Calculateur ROI interactif : analyse prompt × volume mensuel → projection financière par profil
 - `backend/spc/kompress.py` — KOMPRESS avec Entropy Gate (quenching adaptatif remplace 15% fixe)
+- `backend/spc/local_rewrite.py` — Local LLM Rewriter : réécriture de phrases via Qwen2.5 (GGUF), remplace KOMPRESS pour les profils agressifs quand un modèle local est dispo
 - `backend/middleware/proxy.py` — Pipeline complet : PIF → Sanctuary → UCB Cascade → Compress + Entropy Gate → Integrity Gate → Forward → Reconstruction Monitor → Oracle → Drift sample
 - `crash_test_ace.py` — Test de la frontière de compression (10 prompts, seed cells, décisions ACE)
 
