@@ -262,15 +262,32 @@ PIF (headroom < 5% → bypass)
 
 **Docs mis à jour :** README.md, GUIDE_UTILISATION.md, GUIDE_V2_PLATFORM.md, AGENTS.md
 
-### 2026-06-11 — Tests qualité réelle : textes FR/EN, ordre phrases, UTF-8, fragments
+### 2026-06-11 — Tests qualité réelle : couverture contenu, pléonasmes FR, pipeline renforcé
 
-**Crash tests qualité ajoutés :**
-- `tests/test_ace.py` : nouvelle classe `TestQualityIntegration` (9 tests)
-- Deux textes réels : courriel professionnel FR (paragraphes formels + accents + signatures) + équivalent EN
-- 4 vérifications par profil (safe/light/balanced) : pas de fallback intempestif, pas de fragments illisibles, ordre des phrases conservé, compression non-explosive
-- 1 test UTF-8 : tous les caractères accentués (éèêëàâäùûüôöîïç) survivent à la compression
-- 2 tests aggressive/industrial : fallback gracieux sans planter ni produire de vide
-- **Total : 122 tests ACE passent** (9 nouveaux)
+**Crash tests qualité réécrits :**
+- `tests/test_ace.py` : `TestQualityIntegration` entièrement réécrite (9 tests → 9 tests)
+- **Métriques réelles** au lieu de vérifications superficielles :
+  - `_word_coverage()` — ratio de mots originaux présents dans la sortie
+  - `_paragraph_coverage()` — % de paragraphes avec contenu correspondant
+  - `_key_facts_preserved()` — dates, noms, chiffres critiques intacts
+  - `_check_order()` — ordre des tokens conservé
+  - `_has_pleonasm()` — détection des pléonasmes français résiduels
+- **Seuils par profil** : safe/light 95-100%, balanced 75%+, aggressive 30%+ couverture mots
+- Tests échouent si un paragraphe entier disparaît, si "d'anticiper d'avance" n'est pas simplifié,
+  si les faits critiques (date, signature, nom) sont absents
+
+**Pipeline corrigé :**
+- `backend/spc/lexical.py` : ajout `_FR_REDUNDANT_MAP` — 10 pléonasmes FR (anticiper d'avance,
+  prévoir à l'avance, monter en haut, descendre en bas, collaborer ensemble, répéter à nouveau...)
+- `shorten_phrases()` utilise maintenant `_FR_REDUNDANT_MAP` quand `lang=="fr"` (était ignoré)
+- `simplify_polite()` utilise maintenant `_FR_POLITE_MAP` quand `lang=="fr"` (était orphelin)
+- `compress_logical` remplace toujours "Par ailleurs"→"aussi" (discutable mais volontaire pour la compression)
+
+**Nouveaux tests ajoutés :**
+- `test_french_aggressive` — contenu clé + faits critiques préservés
+- `test_english_balanced/light/safe` — couverture paragraphe + faits critiques
+
+**Total : 122 tests ACE + 26 v2 platform = 148 passent**
 
 **Backend corrigé :**
 - `backend/finops/anomaly_detection.py` : ajout `import statistics` manquant (NameError)

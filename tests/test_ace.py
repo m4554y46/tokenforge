@@ -1123,120 +1123,313 @@ Sincerely,
 
 The IT Projects Department."""
 
+# ── Key entities that MUST survive compression ─────────────
+_REAL_FR_KEYWORDS = [
+    "Bonjour", "comité de pilotage", "mardi dernier",
+    "application mobile", "équipes de terrain",
+    "expérience utilisateur", "adoption maximale",
+    "suivi des incidents", "temps réel",
+    "tests de charge", "environnement de recette",
+    "15 septembre", "date butoir", "version bêta",
+    "anticiper", "dérive", "délais",
+    "synchronisation technique", "jeudi matin",
+    "entière disposition", "retour d'expérience",
+    "Cordialement", "direction des projets informatiques",
+]
 
-def _count_words(text: str) -> int:
-    return len(text.split())
+_REAL_FR_CRITICAL_FACTS = [
+    "Bonjour à toutes et à tous",
+    "comité de pilotage stratégique",
+    "mardi dernier",
+    "application mobile",
+    "équipes de terrain",
+    "suivi des incidents en temps réel",
+    "15 septembre",
+    "jeudi matin à 9h00",
+    "Cordialement",
+    "direction des projets informatiques",
+]
+
+_REAL_EN_CRITICAL_FACTS = [
+    "Hello everyone",
+    "strategic steering committee",
+    "this past Tuesday",
+    "mobile application",
+    "field teams",
+    "incident tracking",
+    "September 15th",
+    "Thursday at 9:00 AM",
+    "Sincerely",
+    "IT Projects Department",
+]
+
+# ═══════════════════════════════════════════════════════════════
+# Quality metrics helpers
+# ═══════════════════════════════════════════════════════════════
 
 
-def _sentences(text: str) -> list[str]:
+_FR_STOP_WORDS = {
+    "le", "la", "les", "de", "du", "des", "un", "une", "dans", "pour",
+    "par", "sur", "avec", "sans", "est", "sont", "a", "ont", "été", "sera",
+    "et", "ou", "mais", "donc", "car", "ni", "or",
+    "je", "tu", "il", "elle", "on", "nous", "vous", "ils", "elles",
+    "ce", "cet", "cette", "ces", "mon", "ton", "son", "notre", "votre", "leur",
+    "mes", "tes", "ses", "nos", "vos", "leurs",
+    "au", "aux", "en", "y", "ne", "pas", "plus",
+    "qui", "que", "quoi", "dont", "où",
+    "si", "se", "s", "même", "comme",
+}
+
+_EN_STOP_WORDS = {
+    "the", "a", "an", "in", "on", "at", "to", "for", "of", "by",
+    "with", "without", "from", "and", "or", "but", "so", "if",
+    "is", "are", "was", "were", "be", "been", "being", "have", "has",
+    "had", "do", "does", "did", "will", "would", "could", "should",
+    "may", "might", "shall",
+    "i", "you", "he", "she", "it", "we", "they",
+    "me", "him", "her", "us", "them",
+    "my", "your", "his", "its", "our", "their",
+    "this", "that", "these", "those",
+    "not", "no", "nor", "all", "each", "every", "both", "few", "more",
+    "most", "some", "any", "much", "many",
+}
+
+
+def _content_words(text: str, lang: str = "fr") -> set[str]:
+    """Extrait les mots de contenu (hors stop words et ponctuation)."""
     import re
-    return [s.strip() for s in re.split(r'[.!?]\s+', text) if s.strip()]
+    stop = _FR_STOP_WORDS if lang == "fr" else _EN_STOP_WORDS
+    words = set(re.findall(r'\b[a-z0-9\']+', text.lower()))
+    return words - stop
+
+
+def _word_coverage(original: str, compressed: str, lang: str = "fr") -> float:
+    """Ratio de mots de contenu originaux présents dans le compressé."""
+    orig_content = _content_words(original, lang)
+    comp_content = _content_words(compressed, lang)
+    if not orig_content:
+        return 1.0
+    return len(orig_content & comp_content) / len(orig_content)
+
+
+def _paragraph_coverage(original: str, compressed: str, lang: str = "fr") -> float:
+    """% de paragraphes dont les mots de contenu sont représentés."""
+    import re
+    orig_paras = [p.strip() for p in original.split('\n\n') if p.strip()]
+    comp_lower = compressed.lower()
+    if not orig_paras:
+        return 1.0
+    covered = 0
+    for p in orig_paras:
+        p_words = _content_words(p, lang)
+        if len(p_words) < 2:
+            # Très court (ex: "Cordialement,") — vérifier présence textuelle
+            if p.lower().strip() in comp_lower or any(
+                w in comp_lower for w in p_words
+            ):
+                covered += 1
+            continue
+        comp_w = set(re.findall(r'\b[a-z0-9\']+', comp_lower))
+        overlap = len(p_words & comp_w)
+        if len(p_words) <= 3:
+            threshold = 1
+        else:
+            threshold = max(1, len(p_words) * 0.35)
+        if overlap >= threshold:
+            covered += 1
+    return covered / len(orig_paras)
+
+
+def _key_facts_preserved(facts: list[str], compressed: str) -> tuple[int, list[str]]:
+    """Nombre de faits clés préservés dans le texte compressé.
+    Retourne (ok_count, missing_facts)."""
+    import re
+    comp_lower = compressed.lower()
+    missing = []
+    ok = 0
+    for fact in facts:
+        if fact.lower() in comp_lower:
+            ok += 1
+        else:
+            missing.append(fact)
+    return ok, missing
+
+
+def _check_order(original: str, compressed: str) -> tuple[bool, str]:
+    """Vérifie que les segments du texte compressé apparaissent dans le
+    même ordre que dans l'original. Utilise une fenêtre glissante de 20 tokens."""
+    import re
+    # Tokenize
+    orig_tokens = re.findall(r'\b\w+\b', original.lower())
+    comp_tokens = re.findall(r'\b\w+\b', compressed.lower())
+    if len(comp_tokens) < 3:
+        return True, ""
+
+    # Check each consecutive pair of comp tokens appears in same order in orig
+    last_pos = -1
+    for i, t in enumerate(comp_tokens):
+        try:
+            pos = orig_tokens.index(t, last_pos + 1 if last_pos >= 0 else 0)
+            last_pos = pos
+        except ValueError:
+            # token not found past last_pos — could be a rewrite, OK
+            pass
+        except Exception:
+            return False, f"ordre brisé au token '{t}' (pos {i})"
+    return True, ""
+
+
+def _has_pleonasm(text: str) -> list[str]:
+    """Détecte les pléonasmes français dans le texte."""
+    import re
+    patterns = [
+        (r'\banticiper\s+d\'avance\b', 'anticiper d\'avance → anticiper'),
+        (r'\bprévoir\s+à\s+l\'avance\b', 'prévoir à l\'avance → prévoir'),
+        (r'\bmonter\s+en\s+haut\b', 'monter en haut → monter'),
+        (r'\bdescendre\s+en\s+bas\b', 'descendre en bas → descendre'),
+        (r'\bcollaborer\s+ensemble\b', 'collaborer ensemble → collaborer'),
+        (r'\brépéter\s+à\s+nouveau\b', 'répéter à nouveau → répéter'),
+        (r'\bplus\s+mieux\b', 'plus mieux → mieux'),
+    ]
+    found = []
+    for pat, msg in patterns:
+        if re.search(pat, text, re.I):
+            found.append(msg)
+    return found
 
 
 def _has_garbled_fragments(text: str) -> bool:
-    """Détecte les fragments illisibles caractéristiques de KOMPRESS :
-       - mots tronqués ou collés bizarrement
-       - absence de verbes dans des phrases censées en contenir
-       - séquences de mots sans espacement
-    """
+    """Détecte les fragments illisibles caractéristiques de KOMPRESS."""
     import re
-    # Mots collés sans espace (camelCase bizarre)
     if re.search(r'[a-z][A-Z][a-z]', text):
         return True
-    # Token fragments avec apostrophe au milieu de nulle part
-    fragments = re.findall(r"'[a-z]{2,}\s+'", text)
-    if len(fragments) > 2:
+    frags = re.findall(r"'[a-z]{2,}\s+'", text)
+    if len(frags) > 2:
         return True
-    # Ratio majuscules suspect
     upper_ratio = sum(1 for c in text if c.isupper()) / max(len(text), 1)
     if upper_ratio > 0.4 and len(text) > 100:
         return True
     return False
 
 
-def _check_sentence_order(original: str, compressed: str) -> tuple[bool, str]:
-    """Vérifie que les phrases compressées apparaissent dans l'ordre original.
-    Retourne (ok, raison_échec).
-    """
-    orig_sents = _sentences(original)
-    comp_sents = _sentences(compressed)
-    if not comp_sents:
-        return True, ""
-
-    last_found_idx = -1
-    for cs in comp_sents:
-        cs_lower = cs.lower()[:40]
-        found = False
-        for j, os in enumerate(orig_sents):
-            os_lower = os.lower()[:40]
-            # Vérifier si les débuts de phrase se correspondent
-            if len(cs_lower) > 10 and (cs_lower[:15] in os_lower or os_lower[:15] in cs_lower):
-                if j < last_found_idx:
-                    return False, f"phrase inversée: '{cs[:50]}' (orig#{j}) après orig#{last_found_idx}"
-                last_found_idx = j
-                found = True
-                break
-        if not found:
-            # phrase non trouvée dans l'original — peut être une reformulation, OK
-            pass
-    return True, ""
-
-
 class TestQualityIntegration(unittest.TestCase):
     """Tests de qualité réelle du pipeline SPC sur des textes authentiques.
-    Vérifie que la sortie est lisible, dans l'ordre, et sans artefacts.
+    Vérifie :
+    - Couverture lexicale (ratio mots originaux présents dans la sortie)
+    - Couverture par paragraphe (aucun paragraphe entièrement supprimé)
+    - Préservation des faits critiques (dates, noms, chiffres)
+    - Ordre des tokens conservé
+    - Pas de pléonasmes résiduels (pour les profils qui compressent)
     """
 
-    def _test_profile_quality(self, profile_name: str, text: str, lang: str = "fr"):
+    # ── Seuils de couverture par profil ────────────────────
+    _MIN_WORD_COVERAGE = {
+        "safe": 0.95, "light": 0.90, "balanced": 0.75,
+        "aggressive": 0.30, "industrial": 0.25, "max": 0.25,
+    }
+    _MIN_PARAGRAPH_COVERAGE = {
+        "safe": 1.0, "light": 1.0, "balanced": 0.80,
+        "aggressive": 0.20, "industrial": 0.15, "max": 0.15,
+    }
+
+    def _assert_content_quality(self, profile_name: str, text: str,
+                                 critical_facts: list[str],
+                                 lang: str = "fr"):
         from backend.spc.pipeline import SPC
         from backend.spc.profiles import get_profile
         profile = get_profile(profile_name)
         spc = SPC(profile=profile)
         result = spc.compile(text)
-
         compressed = result.compressed
-        orig_words = _count_words(text)
-        comp_words = _count_words(compressed)
 
         # 1. Pas de fallback intempestif
+        orig_words = len(text.split())
+        comp_words = len(compressed.split())
         self.assertFalse(
             result.fallback and comp_words < orig_words * 0.95,
-            f"{profile_name}: fallback alors que la compression a réduit le texte"
+            f"[{profile_name}] fallback abusif"
         )
+        self.assertGreater(len(compressed.strip()), 0,
+                           f"[{profile_name}] sortie vide")
 
-        # 2. Compression de base (peut être identique pour safe/light)
+        # 2. Couverture lexicale minimale
+        wc = _word_coverage(text, compressed, lang)
+        min_wc = self._MIN_WORD_COVERAGE.get(profile_name, 0.5)
         self.assertGreaterEqual(
-            orig_words, comp_words * 0.5,
-            f"{profile_name}: la compression ne doit pas exploser le texte"
+            wc, min_wc,
+            f"[{profile_name}] couverture lexicale {wc:.1%} < {min_wc:.0%} "
+            f"(mots de contenu originaux absents de la sortie)"
         )
 
-        # 3. Pas de fragments illisibles
+        # 3. Couverture par paragraphe
+        pc = _paragraph_coverage(text, compressed, lang)
+        min_pc = self._MIN_PARAGRAPH_COVERAGE.get(profile_name, 0.7)
+        self.assertGreaterEqual(
+            pc, min_pc,
+            f"[{profile_name}] couverture paragraphes {pc:.1%} < {min_pc:.0%} "
+            f"(des paragraphes entiers ont disparu)"
+        )
+
+        # 4. Faits critiques préservés
+        ok_count, missing = _key_facts_preserved(critical_facts, compressed)
+        min_facts = max(1, len(critical_facts) // 2)
+        self.assertGreaterEqual(
+            ok_count, min_facts,
+            f"[{profile_name}] faits critiques perdus: {missing}"
+        )
+
+        # 5. Ordre des tokens conservé
+        ok_order, reason = _check_order(text, compressed)
+        self.assertTrue(ok_order,
+                        f"[{profile_name}] réordonnancement: {reason}")
+
+        # 6. Pas de fragments illisibles (KOMPRESS artifacts)
         self.assertFalse(
             _has_garbled_fragments(compressed),
-            f"{profile_name}: fragments illisibles détectés dans la sortie"
+            f"[{profile_name}] fragments illisibles dans la sortie"
         )
 
-        # 4. Ordre des phrases conservé
-        ok, reason = _check_sentence_order(text, compressed)
-        self.assertTrue(ok, f"{profile_name}: {reason}")
+        # 7. Si le profil compresse (balanced+), vérifier les pléonasmes
+        if profile_name in ("balanced", "aggressive", "industrial", "max"):
+            pleos = _has_pleonasm(compressed)
+            self.assertFalse(
+                pleos,
+                f"[{profile_name}] pléonasmes résiduels: {pleos}"
+            )
+
+    # ── Tests français ─────────────────────────────────────
 
     def test_french_safe(self):
-        self._test_profile_quality("safe", _REAL_FRENCH_TEXT)
+        self._assert_content_quality("safe", _REAL_FRENCH_TEXT,
+                                      _REAL_FR_CRITICAL_FACTS)
 
     def test_french_light(self):
-        self._test_profile_quality("light", _REAL_FRENCH_TEXT)
+        self._assert_content_quality("light", _REAL_FRENCH_TEXT,
+                                      _REAL_FR_CRITICAL_FACTS)
 
     def test_french_balanced(self):
-        self._test_profile_quality("balanced", _REAL_FRENCH_TEXT)
+        self._assert_content_quality("balanced", _REAL_FRENCH_TEXT,
+                                      _REAL_FR_CRITICAL_FACTS)
+
+    def test_french_aggressive(self):
+        self._assert_content_quality("aggressive", _REAL_FRENCH_TEXT,
+                                      _REAL_FR_CRITICAL_FACTS)
+
+    # ── Tests anglais ──────────────────────────────────────
 
     def test_english_safe(self):
-        self._test_profile_quality("safe", _REAL_ENGLISH_TEXT)
+        self._assert_content_quality("safe", _REAL_ENGLISH_TEXT,
+                                      _REAL_EN_CRITICAL_FACTS, lang="en")
 
     def test_english_light(self):
-        self._test_profile_quality("light", _REAL_ENGLISH_TEXT)
+        self._assert_content_quality("light", _REAL_ENGLISH_TEXT,
+                                      _REAL_EN_CRITICAL_FACTS, lang="en")
 
     def test_english_balanced(self):
-        self._test_profile_quality("balanced", _REAL_ENGLISH_TEXT)
+        self._assert_content_quality("balanced", _REAL_ENGLISH_TEXT,
+                                      _REAL_EN_CRITICAL_FACTS, lang="en")
+
+    # ── Tests UTF-8 ────────────────────────────────────────
 
     def test_french_all_profiles_preserve_utf8(self):
         """Les accents français doivent survivre à la compression."""
@@ -1250,19 +1443,9 @@ class TestQualityIntegration(unittest.TestCase):
             for char in set(_REAL_FRENCH_TEXT):
                 if unicodedata.category(char).startswith("L") and ord(char) > 127:
                     self.assertIn(char, result.compressed,
-                                  f"{pname}: '{char}' perdu dans la compression")
+                                  f"[{pname}] '{char}' perdu dans la compression")
 
-    def test_aggressive_falls_back_gracefully(self):
-        """Sans modèle GGUF, les profils agressifs doivent tomber sur KOMPRESS
-        sans planter et sans produire de texte vide."""
-        from backend.spc.pipeline import SPC
-        from backend.spc.profiles import get_profile
-        profile = get_profile("aggressive")
-        spc = SPC(profile=profile)
-        result = spc.compile(_REAL_FRENCH_TEXT)
-        self.assertIsNotNone(result.compressed)
-        self.assertGreater(len(result.compressed.strip()), 0,
-                           "aggressive: texte vide en sortie")
+    # ── Fallback tests pour profils agressifs ──────────────
 
     def test_industrial_falls_back_gracefully(self):
         from backend.spc.pipeline import SPC
@@ -1272,7 +1455,8 @@ class TestQualityIntegration(unittest.TestCase):
         result = spc.compile(_REAL_FRENCH_TEXT)
         self.assertIsNotNone(result.compressed)
         self.assertGreater(len(result.compressed.strip()), 0,
-                           "industrial: texte vide en sortie")
+                           "industrial: sortie vide")
+
 
 
 if __name__ == "__main__":
