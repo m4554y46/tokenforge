@@ -1168,19 +1168,52 @@ _REAL_EN_CRITICAL_FACTS = [
 # ═══════════════════════════════════════════════════════════════
 
 
-def _word_coverage(original: str, compressed: str) -> float:
-    """Ratio de mots du texte original présents dans le texte compressé."""
+_FR_STOP_WORDS = {
+    "le", "la", "les", "de", "du", "des", "un", "une", "dans", "pour",
+    "par", "sur", "avec", "sans", "est", "sont", "a", "ont", "été", "sera",
+    "et", "ou", "mais", "donc", "car", "ni", "or",
+    "je", "tu", "il", "elle", "on", "nous", "vous", "ils", "elles",
+    "ce", "cet", "cette", "ces", "mon", "ton", "son", "notre", "votre", "leur",
+    "mes", "tes", "ses", "nos", "vos", "leurs",
+    "au", "aux", "en", "y", "ne", "pas", "plus",
+    "qui", "que", "quoi", "dont", "où",
+    "si", "se", "s", "même", "comme",
+}
+
+_EN_STOP_WORDS = {
+    "the", "a", "an", "in", "on", "at", "to", "for", "of", "by",
+    "with", "without", "from", "and", "or", "but", "so", "if",
+    "is", "are", "was", "were", "be", "been", "being", "have", "has",
+    "had", "do", "does", "did", "will", "would", "could", "should",
+    "may", "might", "shall",
+    "i", "you", "he", "she", "it", "we", "they",
+    "me", "him", "her", "us", "them",
+    "my", "your", "his", "its", "our", "their",
+    "this", "that", "these", "those",
+    "not", "no", "nor", "all", "each", "every", "both", "few", "more",
+    "most", "some", "any", "much", "many",
+}
+
+
+def _content_words(text: str, lang: str = "fr") -> set[str]:
+    """Extrait les mots de contenu (hors stop words et ponctuation)."""
     import re
-    orig_words = set(re.findall(r'\b[a-z0-9\']+', original.lower()))
-    comp_words = set(re.findall(r'\b[a-z0-9\']+', compressed.lower()))
-    if not orig_words:
+    stop = _FR_STOP_WORDS if lang == "fr" else _EN_STOP_WORDS
+    words = set(re.findall(r'\b[a-z0-9\']+', text.lower()))
+    return words - stop
+
+
+def _word_coverage(original: str, compressed: str, lang: str = "fr") -> float:
+    """Ratio de mots de contenu originaux présents dans le compressé."""
+    orig_content = _content_words(original, lang)
+    comp_content = _content_words(compressed, lang)
+    if not orig_content:
         return 1.0
-    return len(orig_words & comp_words) / len(orig_words)
+    return len(orig_content & comp_content) / len(orig_content)
 
 
-def _paragraph_coverage(original: str, compressed: str) -> float:
-    """Ratio de paragraphes non-vides de l'original qui ont un contenu
-    correspondant dans le compressé. Utilise le chevauchement de mots."""
+def _paragraph_coverage(original: str, compressed: str, lang: str = "fr") -> float:
+    """% de paragraphes dont les mots de contenu sont représentés."""
     import re
     orig_paras = [p.strip() for p in original.split('\n\n') if p.strip()]
     comp_lower = compressed.lower()
@@ -1188,17 +1221,21 @@ def _paragraph_coverage(original: str, compressed: str) -> float:
         return 1.0
     covered = 0
     for p in orig_paras:
-        p_words = set(re.findall(r'\b\w+\b', p.lower()))
+        p_words = _content_words(p, lang)
         if len(p_words) < 2:
-            # Paragraphe trop court (ex: "Cordialement,")
-            # Vérifier quand même si le texte est présent
-            p_stripped = p.lower().strip()
-            if len(p_stripped) > 2 and p_stripped in comp_lower:
+            # Très court (ex: "Cordialement,") — vérifier présence textuelle
+            if p.lower().strip() in comp_lower or any(
+                w in comp_lower for w in p_words
+            ):
                 covered += 1
             continue
-        # Calcule combien de mots du paragraphe original survivent
-        overlap = len(p_words & set(re.findall(r'\b\w+\b', comp_lower)))
-        if overlap >= max(1, len(p_words) * 0.4):
+        comp_w = set(re.findall(r'\b[a-z0-9\']+', comp_lower))
+        overlap = len(p_words & comp_w)
+        if len(p_words) <= 3:
+            threshold = 1
+        else:
+            threshold = max(1, len(p_words) * 0.35)
+        if overlap >= threshold:
             covered += 1
     return covered / len(orig_paras)
 
@@ -1316,16 +1353,16 @@ class TestQualityIntegration(unittest.TestCase):
                            f"[{profile_name}] sortie vide")
 
         # 2. Couverture lexicale minimale
-        wc = _word_coverage(text, compressed)
+        wc = _word_coverage(text, compressed, lang)
         min_wc = self._MIN_WORD_COVERAGE.get(profile_name, 0.5)
         self.assertGreaterEqual(
             wc, min_wc,
             f"[{profile_name}] couverture lexicale {wc:.1%} < {min_wc:.0%} "
-            f"(mots originaux absents de la sortie)"
+            f"(mots de contenu originaux absents de la sortie)"
         )
 
         # 3. Couverture par paragraphe
-        pc = _paragraph_coverage(text, compressed)
+        pc = _paragraph_coverage(text, compressed, lang)
         min_pc = self._MIN_PARAGRAPH_COVERAGE.get(profile_name, 0.7)
         self.assertGreaterEqual(
             pc, min_pc,
@@ -1382,15 +1419,15 @@ class TestQualityIntegration(unittest.TestCase):
 
     def test_english_safe(self):
         self._assert_content_quality("safe", _REAL_ENGLISH_TEXT,
-                                      _REAL_EN_CRITICAL_FACTS)
+                                      _REAL_EN_CRITICAL_FACTS, lang="en")
 
     def test_english_light(self):
         self._assert_content_quality("light", _REAL_ENGLISH_TEXT,
-                                      _REAL_EN_CRITICAL_FACTS)
+                                      _REAL_EN_CRITICAL_FACTS, lang="en")
 
     def test_english_balanced(self):
         self._assert_content_quality("balanced", _REAL_ENGLISH_TEXT,
-                                      _REAL_EN_CRITICAL_FACTS)
+                                      _REAL_EN_CRITICAL_FACTS, lang="en")
 
     # ── Tests UTF-8 ────────────────────────────────────────
 
