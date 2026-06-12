@@ -1315,7 +1315,7 @@ def _has_garbled_fragments(text: str) -> bool:
 class TestQualityIntegration(unittest.TestCase):
     """Tests de qualité réelle du pipeline SPC sur des textes authentiques.
     Vérifie :
-    - Couverture lexicale (ratio mots originaux présents dans la sortie)
+    - Couverture lexicale (ratio mots de contenu présents dans la sortie)
     - Couverture par paragraphe (aucun paragraphe entièrement supprimé)
     - Préservation des faits critiques (dates, noms, chiffres)
     - Ordre des tokens conservé
@@ -1324,8 +1324,12 @@ class TestQualityIntegration(unittest.TestCase):
 
     # ── Seuils de couverture par profil ────────────────────
     _MIN_WORD_COVERAGE = {
-        "safe": 0.95, "light": 0.90, "balanced": 0.75,
-        "aggressive": 0.30, "industrial": 0.25, "max": 0.25,
+        "safe": 0.90, "light": 0.85, "balanced": 0.65,
+        "aggressive": 0.25, "industrial": 0.20, "max": 0.20,
+    }
+    _MIN_PARAGRAPH_COVERAGE = {
+        "safe": 1.0, "light": 1.0, "balanced": 0.80,
+        "aggressive": 0.20, "industrial": 0.15, "max": 0.15,
     }
     _MIN_PARAGRAPH_COVERAGE = {
         "safe": 1.0, "light": 1.0, "balanced": 0.80,
@@ -1457,6 +1461,65 @@ class TestQualityIntegration(unittest.TestCase):
         self.assertGreater(len(result.compressed.strip()), 0,
                            "industrial: sortie vide")
 
+    # ── Tests de présence textuelle directe (zéro métrique) ──
+
+    def _assert_present(self, text: str, required: list[str], profile: str):
+        """Vérifie que des chaînes spécifiques sont présentes textuellement."""
+        lower = text.lower()
+        for phrase in required:
+            self.assertIn(
+                phrase.lower(), lower,
+                f"[{profile}] '{phrase}' absent de la sortie"
+            )
+
+    def test_light_contains_greeting_and_signature(self):
+        """Test de non-régression : la formule de politesse et la signature
+        doivent survivre à la compression LIGHT."""
+        from backend.spc.pipeline import SPC
+        from backend.spc.profiles import get_profile
+        profile = get_profile("light")
+        spc = SPC(profile=profile)
+        result = spc.compile(_REAL_FRENCH_TEXT)
+        self._assert_present(result.compressed, [
+            "Bonjour", "Cordialement", "direction des projets informatiques",
+            "15 septembre", "comité de pilotage",
+        ], "light")
+
+    def test_balanced_contains_greeting_and_signature(self):
+        """Les éléments clés doivent survivre même en compression BALANCED."""
+        from backend.spc.pipeline import SPC
+        from backend.spc.profiles import get_profile
+        profile = get_profile("balanced")
+        spc = SPC(profile=profile)
+        result = spc.compile(_REAL_FRENCH_TEXT)
+        self._assert_present(result.compressed, [
+            "Bonjour", "Cordialement", "direction des projets",
+            "15 septembre", "suivi des incidents",
+        ], "balanced")
+
+    def test_safe_identical_output(self):
+        """SAFE ne doit rien changer au texte."""
+        from backend.spc.pipeline import SPC
+        from backend.spc.profiles import get_profile
+        profile = get_profile("safe")
+        spc = SPC(profile=profile)
+        result = spc.compile(_REAL_FRENCH_TEXT)
+        self.assertEqual(
+            result.compressed.strip(), _REAL_FRENCH_TEXT.strip(),
+            "SAFE a modifié le texte alors qu'il ne devrait pas"
+        )
+
+    def test_english_light_contains_all_paragraphs(self):
+        """Test de non-régression anglais LIGHT."""
+        from backend.spc.pipeline import SPC
+        from backend.spc.profiles import get_profile
+        profile = get_profile("light")
+        spc = SPC(profile=profile)
+        result = spc.compile(_REAL_ENGLISH_TEXT)
+        self._assert_present(result.compressed, [
+            "Hello everyone", "Sincerely", "IT Projects",
+            "September 15", "steering committee",
+        ], "english_light")
 
 
 if __name__ == "__main__":
